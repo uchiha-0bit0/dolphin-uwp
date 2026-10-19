@@ -14,6 +14,9 @@
 #include "Common/CommonFuncs.h"
 #include "Common/MathUtil.h"
 #include "Common/StringUtil.h"
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/FileSystem.h"
+#endif
 #else
 #include <string>
 
@@ -103,8 +106,12 @@ bool DirectIOFile::Open(const std::string& path, AccessMode access_mode, OpenMod
   else if (open_mode == OpenMode::Existing)
     creation_disposition = OPEN_EXISTING;
 
+#ifdef DOLPHIN_UWP
+  m_handle = Common::UWP::OpenFileHandle(path, desired_access, share_mode, creation_disposition);
+#else
   m_handle = CreateFile(UTF8ToTStr(path).c_str(), desired_access, share_mode, nullptr,
                         creation_disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
+#endif
   if (!IsOpen())
     WARN_LOG_FMT(COMMON, "CreateFile: {}", Common::GetLastErrorString());
 

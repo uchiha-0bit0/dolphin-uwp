@@ -1,7 +1,6 @@
 add_library(inputcommon
   DynamicInputTextureManager.cpp
   DynamicInputTextureManager.h
-  GCAdapter.cpp
   GCAdapter.h
   ImageOperations.cpp
   ImageOperations.h
@@ -87,7 +86,19 @@ PRIVATE
   spng::spng
 )
 
-if(WIN32)
+if(WINDOWS_STORE)
+  target_sources(inputcommon PRIVATE
+    ControllerInterface/UWP/UWP.cpp
+    ControllerInterface/UWP/UWP.h
+    ControllerInterface/WGInput/WGInput.cpp
+    ControllerInterface/WGInput/WGInput.h
+    GCAdapterNull.cpp
+  )
+else()
+  target_sources(inputcommon PRIVATE GCAdapter.cpp)
+endif()
+
+if(WIN32 AND NOT WINDOWS_STORE)
   target_sources(inputcommon PRIVATE
     ControllerInterface/DInput/DInput.cpp
     ControllerInterface/DInput/DInput.h
@@ -144,7 +155,7 @@ elseif(ANDROID)
   )
 endif()
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT WINDOWS_STORE)
   target_link_libraries(inputcommon PUBLIC LibUSB::LibUSB)
 endif()
 

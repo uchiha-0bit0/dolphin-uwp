@@ -5,7 +5,12 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <tuple>
 
 #include <SFML/Network/SocketSelector.hpp>
@@ -41,6 +46,163 @@ const Config::Info<bool> SERVERS_ENABLED{{Config::System::DualShockUDPClient, "S
 
 // Clock type used for querying timeframes
 using SteadyClock = std::chrono::steady_clock;
+
+// The one socket used for all traffic with a server, so that servers which track a single client
+// address see one peer.
+class Connection
+{
+public:
+  Connection(std::string address, u16 port)
+      : m_address(std::move(address)), m_port(port), m_id(MakeId(m_address, m_port))
+  {
+    m_socket.setBlocking(false);
+  }
+
+  sf::UdpSocket& GetSocket() { return m_socket; }
+  u32 GetId() const { return m_id; }
+
+  void SetConnectedPads(u8 pads) { m_connected_pads.store(pads); }
+  u8 GetConnectedPads() const { return m_connected_pads.load(); }
+
+  bool Send(const void* data, std::size_t size)
+  {
+    std::lock_guard lock(m_send_mutex);
+    if (!m_resolved)
+      m_resolved = sf::IpAddress::resolve(m_address);
+    if (!m_resolved)
+    {
+      ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient failed to resolve {}", m_address);
+      return false;
+    }
+    return m_socket.send(data, size, *m_resolved, m_port) == sf::Socket::Status::Done;
+  }
+
+  void StorePadData(const Proto::MessageType::PadDataResponse& data)
+  {
+    if (data.pad_id >= m_pad_data.size())
+      return;
+    std::lock_guard lock(m_data_mutex);
+    m_pad_data[data.pad_id] = data;
+  }
+
+  std::optional<Proto::MessageType::PadDataResponse> TakePadData(int index)
+  {
+    std::lock_guard lock(m_data_mutex);
+    return std::exchange(m_pad_data[index], std::nullopt);
+  }
+
+private:
+  // Stays the same when the server list is edited, so a frontend can keep track of a server.
+  static u32 MakeId(std::string_view address, u16 port)
+  {
+    u32 hash = 2166136261u;
+    for (const char c : fmt::format("{}:{}", address, port))
+      hash = (hash ^ static_cast<u8>(c)) * 16777619u;
+    return hash != 0 ? hash : 1;
+  }
+
+  const std::string m_address;
+  const u16 m_port;
+  const u32 m_id;
+  std::atomic<u8> m_connected_pads{0};
+  sf::UdpSocket m_socket;
+  std::mutex m_send_mutex;
+  std::mutex m_data_mutex;
+  std::optional<sf::IpAddress> m_resolved;
+  std::array<std::optional<Proto::MessageType::PadDataResponse>, Proto::PORT_COUNT> m_pad_data;
+};
+
+namespace
+{
+std::mutex s_extension_mutex;
+ExtensionHandler s_extension_handler;
+std::vector<std::weak_ptr<Connection>> s_extension_connections;
+u32 s_extension_client_uid = 0;
+
+std::vector<std::shared_ptr<Connection>> GetExtensionConnections()
+{
+  std::vector<std::shared_ptr<Connection>> connections;
+  std::lock_guard lock(s_extension_mutex);
+  for (const std::weak_ptr<Connection>& weak_connection : s_extension_connections)
+  {
+    if (auto connection = weak_connection.lock())
+      connections.push_back(std::move(connection));
+  }
+  return connections;
+}
+
+bool SendPadDataRequest(Connection& connection, u32 client_uid, u8 pad_id)
+{
+  Proto::Message<Proto::MessageType::PadDataRequest> msg(client_uid);
+  auto& data_req = msg.m_message;
+  data_req.register_flags = Proto::RegisterFlags::PadID;
+  data_req.pad_id_to_register = pad_id;
+  msg.Finish();
+  return connection.Send(&data_req, sizeof(data_req));
+}
+
+bool HandleExtensionDatagram(Connection& connection, std::span<const u8> datagram)
+{
+  ExtensionHandler handler;
+  {
+    std::lock_guard lock(s_extension_mutex);
+    handler = s_extension_handler;
+  }
+  if (!handler)
+    return false;
+  std::vector<std::vector<u8>> responses;
+  if (!handler(connection.GetId(), datagram, responses))
+    return false;
+  for (const std::vector<u8>& response : responses)
+    connection.Send(response.data(), response.size());
+  return true;
+}
+}  // namespace
+
+void SetExtensionHandler(ExtensionHandler handler)
+{
+  std::lock_guard lock(s_extension_mutex);
+  s_extension_handler = std::move(handler);
+}
+
+bool SendToServer(u32 server, std::span<const u8> datagram)
+{
+  for (const std::shared_ptr<Connection>& connection : GetExtensionConnections())
+  {
+    if (connection->GetId() == server)
+      return connection->Send(datagram.data(), datagram.size());
+  }
+  return false;
+}
+
+void SendToServers(std::span<const u8> datagram)
+{
+  for (const std::shared_ptr<Connection>& connection : GetExtensionConnections())
+    connection->Send(datagram.data(), datagram.size());
+}
+
+void RequestPadData(u8 pad_id)
+{
+  if (pad_id >= Proto::PORT_COUNT)
+    return;
+  u32 client_uid = 0;
+  {
+    std::lock_guard lock(s_extension_mutex);
+    client_uid = s_extension_client_uid;
+  }
+  for (const std::shared_ptr<Connection>& connection : GetExtensionConnections())
+    SendPadDataRequest(*connection, client_uid, pad_id);
+}
+
+u8 GetConnectedPads(u32 server)
+{
+  for (const std::shared_ptr<Connection>& connection : GetExtensionConnections())
+  {
+    if (connection->GetId() == server)
+      return connection->GetConnectedPads();
+  }
+  return 0;
+}
 
 class Device final : public Core::Device
 {
@@ -127,7 +289,7 @@ private:
 public:
   Core::DeviceRemoval UpdateInput() override;
 
-  Device(std::string name, int index, std::string server_address, u16 server_port, u32 client_uid);
+  Device(std::string name, int index, std::shared_ptr<Connection> connection, u32 client_uid);
 
   std::string GetName() const final override;
   std::string GetSource() const final override;
@@ -140,15 +302,13 @@ private:
 
   const std::string m_name;
   const int m_index;
-  sf::UdpSocket m_socket;
+  const std::shared_ptr<Connection> m_connection;
   SteadyClock::time_point m_next_reregister = SteadyClock::time_point::min();
   Proto::MessageType::PadDataResponse m_pad_data{};
   Proto::Touch m_prev_touch{};
   bool m_prev_touch_valid = false;
   int m_touch_x = 0;
   int m_touch_y = 0;
-  const std::string m_server_address;
-  const u16 m_server_port;
 
   s16 m_touch_x_min = 0;
   s16 m_touch_y_min = 0;
@@ -170,7 +330,8 @@ constexpr u32 SERVER_ASKED_PADS = 4;
 struct Server
 {
   Server(std::string description, std::string address, u16 port)
-      : m_description{std::move(description)}, m_address{std::move(address)}, m_port{port}
+      : m_description{std::move(description)}, m_address{std::move(address)}, m_port{port},
+        m_connection{std::make_shared<Connection>(m_address, m_port)}
   {
   }
   Server(const Server&) = delete;
@@ -180,6 +341,7 @@ struct Server
     m_address = std::move(other.m_address);
     m_port = other.m_port;
     m_port_info = other.m_port_info;
+    m_connection = std::move(other.m_connection);
   }
 
   Server& operator=(const Server&) = delete;
@@ -190,8 +352,19 @@ struct Server
   std::string m_description;
   std::string m_address;
   u16 m_port = 0;
+  void PublishConnectedPads()
+  {
+    u8 pads = 0;
+    for (size_t port_index = 0; port_index < m_port_info.size(); ++port_index)
+    {
+      if (m_port_info[port_index].pad_state == Proto::DsState::Connected)
+        pads |= static_cast<u8>(1u << port_index);
+    }
+    m_connection->SetConnectedPads(pads);
+  }
+
   std::array<Proto::MessageType::PortInfo, Proto::PORT_COUNT> m_port_info{};
-  sf::UdpSocket m_socket;
+  std::shared_ptr<Connection> m_connection;
   SteadyClock::time_point m_disconnect_time = SteadyClock::now();
 };
 
@@ -260,19 +433,8 @@ void InputBackend::HotplugThreadFunc()
         list_ports.pad_request_count = SERVER_ASKED_PADS;
         list_ports.pad_ids = {0, 1, 2, 3};
         msg.Finish();
-        if (std::optional<sf::IpAddress> server_ip = sf::IpAddress::resolve(server.m_address))
-        {
-          if (server.m_socket.send(&list_ports, sizeof list_ports, *server_ip, server.m_port) !=
-              sf::Socket::Status::Done)
-          {
-            ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient HotplugThreadFunc send failed");
-          }
-        }
-        else
-        {
-          ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient failed to resolve {}",
-                        server.m_address);
-        }
+        if (!server.m_connection->Send(&list_ports, sizeof list_ports))
+          ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient HotplugThreadFunc send failed");
         timed_out_servers[i] = true;
       }
     }
@@ -280,7 +442,7 @@ void InputBackend::HotplugThreadFunc()
     sf::SocketSelector selector;
     for (auto& server : m_servers)
     {
-      selector.add(server.m_socket);
+      selector.add(server.m_connection->GetSocket());
     }
 
     auto timeout = duration_cast<milliseconds>(m_next_listports_time - SteadyClock::now());
@@ -302,18 +464,37 @@ void InputBackend::HotplugThreadFunc()
         for (size_t i = 0; i < m_servers.size(); ++i)
         {
           auto& server = m_servers[i];
-          if (!selector.isReady(server.m_socket))
+          if (!selector.isReady(server.m_connection->GetSocket()))
+          {
+            continue;
+          }
+
+          // Extension datagrams are larger than any standard message.
+          std::array<u8, 4096> buffer;
+          std::size_t received_bytes = 0;
+          std::optional<sf::IpAddress> sender;
+          u16 port = 0;
+          if (server.m_connection->GetSocket().receive(buffer.data(), buffer.size(), received_bytes,
+                                                       sender, port) != sf::Socket::Status::Done)
+          {
+            continue;
+          }
+          if (HandleExtensionDatagram(*server.m_connection,
+                                      std::span<const u8>(buffer.data(), received_bytes)))
           {
             continue;
           }
 
           Proto::Message<Proto::MessageType::FromServer> msg;
-          std::size_t received_bytes;
-          std::optional<sf::IpAddress> sender;
-          u16 port;
-          if (server.m_socket.receive(&msg, sizeof(msg), received_bytes, sender, port) !=
-              sf::Socket::Status::Done)
+          if (received_bytes > sizeof(msg.m_message))
+            continue;
+          std::memcpy(&msg.m_message, buffer.data(), received_bytes);
+
+          // Casting clears the checksum, so each message is cast once, by type.
+          if (msg.m_message.message_type == Proto::MessageType::PadDataResponse::TYPE)
           {
+            if (auto pad_data = msg.CheckAndCastTo<Proto::MessageType::PadDataResponse>())
+              server.m_connection->StorePadData(*pad_data);
             continue;
           }
 
@@ -329,6 +510,7 @@ void InputBackend::HotplugThreadFunc()
             if (port_changed)
             {
               server.m_port_info[port_info->pad_id] = *port_info;
+              server.PublishConnectedPads();
               // Just remove and re-add all the devices for simplicity
               GetControllerInterface().PlatformPopulateDevices([this] { PopulateDevices(); });
             }
@@ -354,6 +536,7 @@ void InputBackend::HotplugThreadFunc()
           server.m_port_info[port_index] = {};
           server.m_port_info[port_index].pad_id = static_cast<u8>(port_index);
         }
+        server.PublishConnectedPads();
         // We can't only remove devices added by this server as we wouldn't know which they are
         if (any_connected)
           GetControllerInterface().PlatformPopulateDevices([this] { PopulateDevices(); });
@@ -385,9 +568,13 @@ void InputBackend::StopHotplugThread()
 
   m_hotplug_thread.join();
 
+  {
+    std::lock_guard lock(s_extension_mutex);
+    s_extension_connections.clear();
+  }
   for (auto& server : m_servers)
   {
-    server.m_socket.unbind();  // interrupt blocking socket
+    server.m_connection->GetSocket().unbind();  // interrupt blocking socket
   }
 }
 
@@ -405,6 +592,7 @@ void InputBackend::Restart()
       server.m_port_info[port_index] = {};
       server.m_port_info[port_index].pad_id = static_cast<u8>(port_index);
     }
+    server.PublishConnectedPads();
   }
 
   // Only removes devices as servers have been cleaned
@@ -414,7 +602,16 @@ void InputBackend::Restart()
   m_next_listports_time = SteadyClock::now();
 
   if (m_servers_enabled && !m_servers.empty())
+  {
+    {
+      std::lock_guard lock(s_extension_mutex);
+      s_extension_connections.clear();
+      for (const Server& server : m_servers)
+        s_extension_connections.push_back(server.m_connection);
+      s_extension_client_uid = m_client_uid;
+    }
     StartHotplugThread();
+  }
 }
 
 void InputBackend::ConfigChanged()
@@ -508,9 +705,8 @@ void InputBackend::PopulateDevices()
       if (port_info.pad_state != Proto::DsState::Connected)
         continue;
 
-      GetControllerInterface().AddDevice(
-          std::make_shared<Device>(server.m_description, static_cast<int>(port_index),
-                                   server.m_address, server.m_port, m_client_uid));
+      GetControllerInterface().AddDevice(std::make_shared<Device>(
+          server.m_description, static_cast<int>(port_index), server.m_connection, m_client_uid));
     }
   }
 }
@@ -521,13 +717,10 @@ InputBackend::~InputBackend()
   StopHotplugThread();
 }
 
-Device::Device(std::string name, int index, std::string server_address, u16 server_port,
-               u32 client_uid)
-    : m_name{std::move(name)}, m_index{index}, m_server_address{std::move(server_address)},
-      m_server_port{server_port}, m_client_uid(client_uid)
+Device::Device(std::string name, int index, std::shared_ptr<Connection> connection, u32 client_uid)
+    : m_name{std::move(name)}, m_index{index}, m_connection{std::move(connection)},
+      m_client_uid(client_uid)
 {
-  m_socket.setBlocking(false);
-
   AddInput(new AnalogInput<u8>("Pad W", m_pad_data.button_dpad_left_analog, 255));
   AddInput(new AnalogInput<u8>("Pad S", m_pad_data.button_dpad_down_analog, 255));
   AddInput(new AnalogInput<u8>("Pad E", m_pad_data.button_dpad_right_analog, 255));
@@ -626,44 +819,27 @@ Core::DeviceRemoval Device::UpdateInput()
   if (now >= m_next_reregister)
   {
     m_next_reregister = now + SERVER_REREGISTER_INTERVAL;
-
-    Proto::Message<Proto::MessageType::PadDataRequest> msg(m_client_uid);
-    auto& data_req = msg.m_message;
-    data_req.register_flags = Proto::RegisterFlags::PadID;
-    data_req.pad_id_to_register = m_index;
-    msg.Finish();
-    if (m_socket.send(&data_req, sizeof(data_req), sf::IpAddress::resolve(m_server_address).value(),
-                      m_server_port) != sf::Socket::Status::Done)
-    {
+    if (!SendPadDataRequest(*m_connection, m_client_uid, static_cast<u8>(m_index)))
       ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient UpdateInput send failed");
-    }
   }
 
-  // Receive and handle controller data
-  Proto::Message<Proto::MessageType::FromServer> msg;
-  std::size_t received_bytes;
-  std::optional<sf::IpAddress> sender;
-  u16 port;
-  while (m_socket.receive(&msg, sizeof msg, received_bytes, sender, port) ==
-         sf::Socket::Status::Done)
+  // The client thread receives the data on the shared socket.
+  if (const auto pad_data = m_connection->TakePadData(m_index))
   {
-    if (auto pad_data = msg.CheckAndCastTo<Proto::MessageType::PadDataResponse>())
-    {
-      m_pad_data = *pad_data;
+    m_pad_data = *pad_data;
 
-      // Update touch pad relative coordinates
-      if (m_pad_data.touch1.id != m_prev_touch.id)
-        m_prev_touch_valid = false;
-      if (m_prev_touch_valid)
-      {
-        m_touch_x += m_pad_data.touch1.x - m_prev_touch.x;
-        m_touch_y += m_pad_data.touch1.y - m_prev_touch.y;
-        m_touch_x = std::clamp(m_touch_x, -TOUCH_X_AXIS_MAX, TOUCH_X_AXIS_MAX);
-        m_touch_y = std::clamp(m_touch_y, -TOUCH_Y_AXIS_MAX, TOUCH_Y_AXIS_MAX);
-      }
-      m_prev_touch = m_pad_data.touch1;
-      m_prev_touch_valid = true;
+    // Update touch pad relative coordinates
+    if (m_pad_data.touch1.id != m_prev_touch.id)
+      m_prev_touch_valid = false;
+    if (m_prev_touch_valid)
+    {
+      m_touch_x += m_pad_data.touch1.x - m_prev_touch.x;
+      m_touch_y += m_pad_data.touch1.y - m_prev_touch.y;
+      m_touch_x = std::clamp(m_touch_x, -TOUCH_X_AXIS_MAX, TOUCH_X_AXIS_MAX);
+      m_touch_y = std::clamp(m_touch_y, -TOUCH_Y_AXIS_MAX, TOUCH_Y_AXIS_MAX);
     }
+    m_prev_touch = m_pad_data.touch1;
+    m_prev_touch_valid = true;
   }
 
   return Core::DeviceRemoval::Keep;

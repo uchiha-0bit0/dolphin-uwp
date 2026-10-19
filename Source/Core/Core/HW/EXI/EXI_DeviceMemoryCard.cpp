@@ -495,6 +495,12 @@ void CEXIMemoryCard::TransferByte(u8& byte)
   DEBUG_LOG_FMT(EXPANSIONINTERFACE, "EXI MEMCARD: < {:02x}", byte);
 }
 
+void CEXIMemoryCard::Flush()
+{
+  if (m_memory_card)
+    m_memory_card->Flush();
+}
+
 void CEXIMemoryCard::DoState(PointerWrap& p)
 {
   // for movie sync, we need to save/load memory card contents (and other data) in savestates.

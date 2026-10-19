@@ -52,6 +52,7 @@ public:
   bool UseDelayedTransferCompletion() const override;
   bool IsPresent() const override;
   void DoState(PointerWrap& p) override;
+  void Flush() override;
   void DMARead(u32 addr, u32 size) override;
   void DMAWrite(u32 addr, u32 size) override;
 

@@ -6,6 +6,8 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <functional>
+#include <vector>
 
 #include "AudioCommon/SurroundDecoder.h"
 #include "AudioCommon/WaveFile.h"
@@ -27,6 +29,16 @@ public:
   // Called from audio threads
   std::size_t Mix(s16* samples, std::size_t numSamples);
   std::size_t MixSurround(float* samples, std::size_t num_samples);
+
+  // Receives a copy of the mixed stereo output on the audio thread.
+  using OutputTap =
+      std::function<void(const s16* samples, std::size_t num_samples, u32 sample_rate)>;
+  static void SetOutputTap(OutputTap tap);
+  // Receives the audio of the integrated GBAs in the mask on the audio thread, in place of mixing
+  // it into the output.
+  using GBATap = std::function<void(std::size_t device_number, const s16* samples,
+                                    std::size_t num_samples, u32 sample_rate)>;
+  static void SetGBATap(GBATap tap, u32 device_mask);
 
   // Called from main thread
   void PushSamples(const s16* samples, std::size_t num_samples);
@@ -204,6 +216,7 @@ private:
   std::array<bool, 4> m_config_wiimote_output_enabled{};
   bool m_config_gba_routing_enabled = false;
   std::array<bool, Config::GBA_SPEAKER_COUNT> m_config_gba_output_enabled{};
+  std::vector<s16> m_gba_tap_buffer;
 
   Config::ConfigChangedCallbackID m_config_changed_callback_id;
 };

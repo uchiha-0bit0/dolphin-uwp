@@ -4,7 +4,7 @@
 #include "Core/TitleDatabase.h"
 
 #include <cstddef>
-#include <fstream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -27,8 +27,9 @@ static Map LoadMap(const std::string& file_path)
 {
   Map map;
 
-  std::ifstream txt;
-  File::OpenFStream(txt, file_path, std::ios::in);
+  std::string contents;
+  File::ReadFileToString(file_path, contents);
+  std::istringstream txt(contents);
 
   std::string line;
   while (std::getline(txt, line))

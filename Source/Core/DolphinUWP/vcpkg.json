@@ -1,0 +1,11 @@
+{
+  "name": "dolphin-uwp",
+  "version-string": "1.0.0",
+  "dependencies": [
+    {
+      "name": "boost-asio",
+      "default-features": false
+    },
+    "rapidjson"
+  ]
+}

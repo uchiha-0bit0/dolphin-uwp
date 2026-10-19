@@ -13,6 +13,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #include "Common/StringUtil.h"
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/Kernel32.h"
+#endif
 #else
 #include <stdio.h>
 #include <sys/mman.h>
@@ -30,6 +33,11 @@
 
 namespace Common
 {
+#ifdef DOLPHIN_UWP
+using Kernel32::VirtualAlloc;
+using Kernel32::VirtualProtect;
+#endif
+
 // This is purposely not a full wrapper for virtualalloc/mmap, but it
 // provides exactly the primitive operations that Dolphin needs.
 

@@ -51,7 +51,39 @@ void Microphone::Initialize()
   StreamInit();
 }
 
-#ifndef HAVE_CUBEB
+#if defined(DOLPHIN_UWP)
+void Microphone::StreamInit()
+{
+  StreamStart(m_sampler.GetDefaultSamplingRate());
+}
+
+void Microphone::StreamTerminate()
+{
+  StreamStop();
+}
+
+void Microphone::StreamStart(u32 sampling_rate)
+{
+  {
+    std::lock_guard lock(m_ring_lock);
+    m_stream_buffer.resize(GetStreamSize());
+    m_stream_wpos = 0;
+  }
+  m_capture.Start(sampling_rate, [this](const SampleType* samples, u32 count) {
+    // Skip data when the core isn't running or the microphone is muted
+    if (Core::GetState(Core::System::GetInstance()) == Core::State::Running &&
+        !IsMicrophoneMuted())
+    {
+      DataCallback(samples, static_cast<long>(count));
+    }
+  });
+}
+
+void Microphone::StreamStop()
+{
+  m_capture.Stop();
+}
+#elif !defined(HAVE_CUBEB)
 void Microphone::StreamInit()
 {
 }
@@ -176,7 +208,9 @@ long Microphone::CubebDataCallback(cubeb_stream* stream, void* user_data, const 
 
   return mic->DataCallback(static_cast<const SampleType*>(input_buffer), nframes);
 }
+#endif
 
+#if defined(HAVE_CUBEB) || defined(DOLPHIN_UWP)
 long Microphone::DataCallback(const SampleType* input_buffer, long nframes)
 {
   std::lock_guard lock(m_ring_lock);

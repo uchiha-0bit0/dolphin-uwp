@@ -27,7 +27,7 @@
 #include <sys/stat.h>
 #endif
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if (defined(_WIN32) && !defined(DOLPHIN_UWP)) || defined(__APPLE__)
 #define OS_SUPPORTS_UPDATER
 #include "Common/CommonFuncs.h"
 #include "Common/CommonPaths.h"

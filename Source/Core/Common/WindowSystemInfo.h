@@ -13,6 +13,7 @@ enum class WindowSystemType
   Wayland,
   FBDev,
   Haiku,
+  WinRT,
 };
 
 struct WindowSystemInfo
@@ -43,4 +44,9 @@ struct WindowSystemInfo
 
   // Scale of the render surface. For hidpi systems, this will be >1.
   float render_surface_scale = 1.0f;
+
+  // Size of the render surface in pixels, for window systems where the backend cannot query the
+  // surface itself (WinRT CoreWindow). Zero means the backend should use the window size.
+  int render_surface_width = 0;
+  int render_surface_height = 0;
 };

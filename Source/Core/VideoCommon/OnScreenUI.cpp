@@ -422,6 +422,7 @@ void OnScreenUI::Finalize()
   DrawDebugText();
   OSD::DrawMessages();
   DrawChallengesAndLeaderboards();
+  GetVideoEvents().on_screen_ui_event.Trigger();
   ImGui::Render();
 
   // Check for font changes

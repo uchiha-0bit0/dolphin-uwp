@@ -150,7 +150,8 @@ bool InputConfig::ControllersNeedToBeCreated() const
 
 std::string InputConfig::GetUserProfileDirectoryPath() const
 {
-  return fmt::format("{}Profiles/{}/", File::GetUserPath(D_CONFIG_IDX), GetProfileDirectoryName());
+  return fmt::format("{}{}/", File::GetUserPath(D_CONTROLLERPROFILES_IDX),
+                     GetProfileDirectoryName());
 }
 
 std::string InputConfig::GetSysProfileDirectoryPath() const

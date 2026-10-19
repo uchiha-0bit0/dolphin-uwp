@@ -6,10 +6,10 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <fstream>
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -67,8 +67,9 @@ static std::vector<std::string> ReadM3UFile(const std::string& m3u_path,
   std::vector<std::string> result;
   std::vector<std::string> nonexistent;
 
-  std::ifstream s;
-  File::OpenFStream(s, m3u_path, std::ios_base::in);
+  std::string contents;
+  File::ReadFileToString(m3u_path, contents);
+  std::istringstream s(contents);
 
   std::string line;
   while (std::getline(s, line))
@@ -76,10 +77,9 @@ static std::vector<std::string> ReadM3UFile(const std::string& m3u_path,
     // This is the UTF-8 representation of U+FEFF.
     constexpr std::string_view utf8_bom = "\xEF\xBB\xBF";
 
-#ifndef _WIN32
+    // The file is read as binary, so lines that end in CRLF keep their CR.
     if (line.ends_with('\r'))
       line.pop_back();
-#endif
 
     if (line.starts_with(utf8_bom))
     {

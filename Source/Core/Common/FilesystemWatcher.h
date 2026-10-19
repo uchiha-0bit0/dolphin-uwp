@@ -18,6 +18,13 @@ class watch;
 
 namespace Common
 {
+#ifdef DOLPHIN_UWP
+namespace UWP
+{
+class DirectoryWatch;
+}
+#endif
+
 // A class that can watch a path and receive callbacks
 // when files or directories underneath that path receive events
 class FilesystemWatcher
@@ -42,6 +49,10 @@ private:
   // A file or folder was deleted in one of the watched paths
   virtual void PathDeleted(std::string_view path) {}
 
+#ifdef DOLPHIN_UWP
+  std::map<std::string, std::unique_ptr<UWP::DirectoryWatch>> m_watched_paths;
+#else
   std::map<std::string, std::unique_ptr<wtr::watch>> m_watched_paths;
+#endif
 };
 }  // namespace Common

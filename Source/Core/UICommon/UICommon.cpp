@@ -8,7 +8,11 @@
 #include <cmath>
 #include <locale>
 #include <memory>
-#ifdef _WIN32
+#ifdef DOLPHIN_UWP
+#include <winrt/Windows.Storage.h>
+
+#include "Common/StringUtil.h"
+#elif defined(_WIN32)
 #include <shlobj.h>  // for SHGetFolderPath
 
 #include <wil/resource.h>
@@ -268,7 +272,7 @@ void CreateDirectories()
   File::CreateFullPath(File::GetUserPath(D_CACHE_IDX));
   File::CreateFullPath(File::GetUserPath(D_COVERCACHE_IDX));
   File::CreateFullPath(File::GetUserPath(D_CONFIG_IDX));
-  File::CreateFullPath(File::GetUserPath(D_CONFIG_IDX) + GRAPHICSMOD_CONFIG_DIR DIR_SEP);
+  File::CreateFullPath(File::GetUserPath(D_GRAPHICSMODCONFIG_IDX));
   File::CreateFullPath(File::GetUserPath(D_DUMPDSP_IDX));
   File::CreateFullPath(File::GetUserPath(D_DUMPSSL_IDX));
   File::CreateFullPath(File::GetUserPath(D_DUMPTEXTURES_IDX));
@@ -311,7 +315,11 @@ void SetUserDirectory(std::string custom_path)
   }
 
   std::string user_path;
-#ifdef _WIN32
+#if defined(DOLPHIN_UWP)
+  const winrt::hstring local_folder =
+      winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
+  user_path = WStringToUTF8(local_folder) + DIR_SEP PORTABLE_USER_DIR DIR_SEP;
+#elif defined(_WIN32)
   // Detect where the User directory is. There are five different cases
   // (on top of the command line flag, which overrides all this):
   // 1. GetExeDirectory()\portable.txt exists
@@ -507,7 +515,7 @@ void InhibitScreenSaver(bool inhibit)
   DBusUtils::InhibitScreenSaver(inhibit);
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
   // Prevents Windows from sleeping, turning off the display, or idling
   SetThreadExecutionState(ES_CONTINUOUS |
                           (inhibit ? (ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED) : 0));

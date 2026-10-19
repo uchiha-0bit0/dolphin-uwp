@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <span>
 
 #include "AudioCommon/Enums.h"
@@ -17,6 +18,12 @@
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
 #include "Core/System.h"
+
+static std::mutex s_output_tap_lock;
+static Mixer::OutputTap s_output_tap;
+static std::mutex s_gba_tap_lock;
+static Mixer::GBATap s_gba_tap;
+static u32 s_gba_tap_mask = 0;
 
 static u32 DPL2QualityToFrameBlockSize(AudioCommon::DPL2Quality quality)
 {
@@ -47,6 +54,19 @@ Mixer::Mixer(u32 BackendSampleRate)
 Mixer::~Mixer()
 {
   Config::RemoveConfigChangedCallback(m_config_changed_callback_id);
+}
+
+void Mixer::SetOutputTap(OutputTap tap)
+{
+  std::lock_guard<std::mutex> lk(s_output_tap_lock);
+  s_output_tap = std::move(tap);
+}
+
+void Mixer::SetGBATap(GBATap tap, u32 device_mask)
+{
+  std::lock_guard<std::mutex> lk(s_gba_tap_lock);
+  s_gba_tap = std::move(tap);
+  s_gba_tap_mask = s_gba_tap ? device_mask : 0;
 }
 
 void Mixer::DoState(PointerWrap& p)
@@ -176,10 +196,27 @@ std::size_t Mixer::Mix(s16* samples, std::size_t num_samples)
       m_wiimote_speaker_mixers[i].Mix(samples, num_samples);
   }
   m_skylander_portal_mixer.Mix(samples, num_samples);
-  for (std::size_t i = 0; i < m_gba_mixers.size(); ++i)
   {
-    if (!m_config_gba_routing_enabled || !m_config_gba_output_enabled[i])
-      m_gba_mixers[i].Mix(samples, num_samples);
+    std::lock_guard<std::mutex> lk(s_gba_tap_lock);
+    for (std::size_t i = 0; i < m_gba_mixers.size(); ++i)
+    {
+      if ((s_gba_tap_mask & (1u << i)) != 0)
+      {
+        m_gba_tap_buffer.assign(num_samples * 2, 0);
+        m_gba_mixers[i].Mix(m_gba_tap_buffer.data(), num_samples);
+        s_gba_tap(i, m_gba_tap_buffer.data(), num_samples, m_output_sample_rate);
+      }
+      else if (!m_config_gba_routing_enabled || !m_config_gba_output_enabled[i])
+      {
+        m_gba_mixers[i].Mix(samples, num_samples);
+      }
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lk(s_output_tap_lock);
+    if (s_output_tap)
+      s_output_tap(samples, num_samples, m_output_sample_rate);
   }
 
   return num_samples;
@@ -325,7 +362,10 @@ std::size_t Mixer::MixGBA(std::size_t device_number, s16* samples, std::size_t n
   if (!samples || device_number >= m_gba_mixers.size())
     return 0;
   memset(samples, 0, num_samples * 2 * sizeof(s16));
-  m_gba_mixers[device_number].Mix(samples, num_samples);
+  // A tapped GBA plays through its tap, which Mix feeds.
+  std::lock_guard<std::mutex> lk(s_gba_tap_lock);
+  if ((s_gba_tap_mask & (1u << device_number)) == 0)
+    m_gba_mixers[device_number].Mix(samples, num_samples);
   return num_samples;
 }
 

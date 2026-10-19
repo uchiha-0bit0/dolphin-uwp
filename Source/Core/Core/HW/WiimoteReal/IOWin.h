@@ -3,7 +3,7 @@
 
 #pragma once
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 #include <windows.h>
 
 #include <atomic>

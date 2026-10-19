@@ -19,6 +19,10 @@ struct cubeb;
 struct cubeb_stream;
 #endif
 
+#ifdef DOLPHIN_UWP
+#include "AudioCommon/UWPAudioCapture.h"
+#endif
+
 namespace IOS::HLE::USB
 {
 class MicrophoneState
@@ -55,6 +59,8 @@ private:
 #ifdef HAVE_CUBEB
   static long CubebDataCallback(cubeb_stream* stream, void* user_data, const void* input_buffer,
                                 void* output_buffer, long nframes);
+#endif
+#if defined(HAVE_CUBEB) || defined(DOLPHIN_UWP)
   virtual std::string GetInputDeviceId() const = 0;
   virtual std::string GetCubebStreamName() const = 0;
   virtual s16 GetVolumeModifier() const = 0;
@@ -122,6 +128,10 @@ private:
   std::shared_ptr<cubeb> m_cubeb_ctx = nullptr;
   cubeb_stream* m_cubeb_stream = nullptr;
   CubebUtils::CoInitSyncWorker m_worker;
+#endif
+
+#ifdef DOLPHIN_UWP
+  AudioCommon::UWPAudioCapture m_capture;
 #endif
 };
 }  // namespace IOS::HLE::USB

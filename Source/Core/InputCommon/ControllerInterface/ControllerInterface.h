@@ -16,7 +16,9 @@
 #include "InputCommon/ControllerInterface/InputBackend.h"
 
 // enable disable sources
-#ifdef _WIN32
+#ifdef DOLPHIN_UWP
+#define CIFACE_USE_UWP
+#elif defined(_WIN32)
 #define CIFACE_USE_WIN32
 #endif
 #ifdef HAVE_X11

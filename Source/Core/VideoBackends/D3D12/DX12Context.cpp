@@ -29,6 +29,33 @@ static PFN_D3D12_CREATE_DEVICE s_d3d12_create_device;
 static PFN_D3D12_GET_DEBUG_INTERFACE s_d3d12_get_debug_interface;
 static PFN_D3D12_SERIALIZE_ROOT_SIGNATURE s_d3d12_serialize_root_signature;
 
+static bool LoadCreateDevice(Common::DynamicLibrary& library,
+                             PFN_D3D12_CREATE_DEVICE* d3d12_create_device)
+{
+#ifdef DOLPHIN_UWP
+  *d3d12_create_device = D3D12CreateDevice;
+  return true;
+#else
+  return library.Open("d3d12.dll") && library.GetSymbol("D3D12CreateDevice", d3d12_create_device);
+#endif
+}
+
+static bool LoadD3D12Library()
+{
+#ifdef DOLPHIN_UWP
+  s_d3d12_create_device = D3D12CreateDevice;
+  s_d3d12_get_debug_interface = D3D12GetDebugInterface;
+  s_d3d12_serialize_root_signature = D3D12SerializeRootSignature;
+  return true;
+#else
+  return s_d3d12_library.Open("d3d12.dll") &&
+         s_d3d12_library.GetSymbol("D3D12CreateDevice", &s_d3d12_create_device) &&
+         s_d3d12_library.GetSymbol("D3D12GetDebugInterface", &s_d3d12_get_debug_interface) &&
+         s_d3d12_library.GetSymbol("D3D12SerializeRootSignature",
+                                   &s_d3d12_serialize_root_signature);
+#endif
+}
+
 DXContext::DXContext() = default;
 
 DXContext::~DXContext()
@@ -55,11 +82,8 @@ std::vector<u32> DXContext::GetAAModes(u32 adapter_index)
       return {};
 
     PFN_D3D12_CREATE_DEVICE d3d12_create_device;
-    if (!temp_lib.Open("d3d12.dll") ||
-        !temp_lib.GetSymbol("D3D12CreateDevice", &d3d12_create_device))
-    {
+    if (!LoadCreateDevice(temp_lib, &d3d12_create_device))
       return {};
-    }
 
     hr = d3d12_create_device(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&temp_device));
     if (!SUCCEEDED(hr))
@@ -97,13 +121,18 @@ bool DXContext::SupportsTextureFormat(DXGI_FORMAT format)
          (support.Support1 & required) == required;
 }
 
+bool DXContext::SupportsLogicOp()
+{
+  D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
+  return SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options,
+                                                 sizeof(options))) &&
+         options.OutputMergerLogicOp;
+}
+
 bool DXContext::Create(u32 adapter_index, bool enable_debug_layer)
 {
   ASSERT(!g_dx_context);
-  if (!s_d3d12_library.Open("d3d12.dll") ||
-      !s_d3d12_library.GetSymbol("D3D12CreateDevice", &s_d3d12_create_device) ||
-      !s_d3d12_library.GetSymbol("D3D12GetDebugInterface", &s_d3d12_get_debug_interface) ||
-      !s_d3d12_library.GetSymbol("D3D12SerializeRootSignature", &s_d3d12_serialize_root_signature))
+  if (!LoadD3D12Library())
   {
     PanicAlertFmtT("d3d12.dll could not be loaded.");
     s_d3d12_library.Close();

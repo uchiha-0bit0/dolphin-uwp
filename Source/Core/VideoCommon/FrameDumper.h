@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <optional>
+#include <utility>
+
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
 #include "Common/Flag.h"
@@ -19,8 +22,23 @@ class AbstractFramebuffer;
 class FrameDumper
 {
 public:
+  // Receives scaled frames for a live stream on the video thread.
+  class StreamSink
+  {
+  public:
+    virtual ~StreamSink() = default;
+
+    // Returns the output size when the current frame should be captured.
+    virtual std::optional<std::pair<u32, u32>> RequestFrame() = 0;
+
+    // Delivers an RGBA8 frame captured by an earlier request.
+    virtual void SubmitFrame(const u8* data, u32 width, u32 height, u32 stride) = 0;
+  };
+
   FrameDumper();
   ~FrameDumper();
+
+  static void SetStreamSink(StreamSink* sink);
 
   // Ensures all rendered frames are queued for encoding.
   void FlushFrameDump();
@@ -29,6 +47,10 @@ public:
   void DumpCurrentFrame(const AbstractTexture* src_texture,
                         const MathUtil::Rectangle<int>& src_rect,
                         const MathUtil::Rectangle<int>& target_rect, u64 ticks, int frame_number);
+
+  // Captures the current XFB for the stream sink, letterboxed to the given aspect ratio.
+  void StreamCurrentFrame(const AbstractTexture* src_texture,
+                          const MathUtil::Rectangle<int>& src_rect, float aspect_ratio);
 
   void SaveScreenshot(std::string filename);
 
@@ -54,6 +76,10 @@ private:
 
   // Checks that the frame dump readback texture exists and is the correct size.
   bool CheckFrameDumpReadbackTexture(u32 target_width, u32 target_height);
+
+  // Checks that the stream textures exist and are the correct size.
+  bool CheckStreamTextures(u32 width, u32 height);
+  void ReleaseStreamTextures();
 
   // Asynchronously encodes the specified pointer of frame data to the frame dump.
   void DumpFrameData(const u8* data, int w, int h, int stride);
@@ -92,6 +118,12 @@ private:
   u32 m_frame_dump_image_counter = 0;
 
   FFMpegFrameDump m_ffmpeg_dump;
+
+  // Live stream capture
+  std::unique_ptr<AbstractTexture> m_stream_render_texture;
+  std::unique_ptr<AbstractFramebuffer> m_stream_render_framebuffer;
+  std::unique_ptr<AbstractStagingTexture> m_stream_readback_texture;
+  bool m_stream_frame_pending = false;
 
   // Screenshots
   Common::Flag m_screenshot_request;

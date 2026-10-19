@@ -5,8 +5,23 @@
 
 #include <windows.h>
 #include <string>
+
+#ifdef DOLPHIN_UWP
+// winternl.h is limited to desktop builds.
+typedef LONG NTSTATUS;
+#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
+
+typedef struct _UNICODE_STRING
+{
+  USHORT Length;
+  USHORT MaximumLength;
+  PWSTR Buffer;
+} UNICODE_STRING;
+typedef const UNICODE_STRING* PCUNICODE_STRING;
+#else
 #include <tlhelp32.h>
 #include <winternl.h>
+#endif
 
 typedef struct _LDR_DLL_LOADED_NOTIFICATION_DATA
 {
@@ -137,6 +152,47 @@ LdrWatcher::~LdrWatcher()
   UninstallAll();
 }
 
+#ifdef DOLPHIN_UWP
+bool LdrWatcher::InjectCurrentModules(const LdrObserver& observer)
+{
+  // The psapi functions are exported by kernel32 but not declared for the app partition.
+  const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+  if (!kernel32)
+    return false;
+  const auto enum_process_modules = reinterpret_cast<BOOL(WINAPI*)(HANDLE, HMODULE*, DWORD, DWORD*)>(
+      GetProcAddress(kernel32, "K32EnumProcessModules"));
+  const auto get_module_base_name = reinterpret_cast<DWORD(WINAPI*)(HANDLE, HMODULE, LPWSTR, DWORD)>(
+      GetProcAddress(kernel32, "K32GetModuleBaseNameW"));
+  if (!enum_process_modules || !get_module_base_name)
+    return false;
+
+  const HANDLE process = GetCurrentProcess();
+  std::vector<HMODULE> modules(256);
+  DWORD needed = 0;
+  while (true)
+  {
+    const DWORD capacity = static_cast<DWORD>(modules.size() * sizeof(HMODULE));
+    if (!enum_process_modules(process, modules.data(), capacity, &needed))
+      return false;
+    if (needed <= capacity)
+      break;
+    modules.resize(needed / sizeof(HMODULE));
+  }
+  modules.resize(needed / sizeof(HMODULE));
+
+  for (const HMODULE module : modules)
+  {
+    wchar_t name[MAX_PATH];
+    const DWORD length = get_module_base_name(process, module, name, MAX_PATH);
+    if (length == 0)
+      continue;
+    const auto size = static_cast<USHORT>(length * sizeof(wchar_t));
+    const UNICODE_STRING module_name{size, size, name};
+    LdrObserverRun(observer, &module_name, reinterpret_cast<uintptr_t>(module));
+  }
+  return true;
+}
+#else
 // Needed for RtlInitUnicodeString
 #pragma comment(lib, "ntdll")
 
@@ -158,6 +214,7 @@ bool LdrWatcher::InjectCurrentModules(const LdrObserver& observer)
   CloseHandle(snapshot);
   return true;
 }
+#endif
 
 void LdrWatcher::Install(const LdrObserver& observer)
 {

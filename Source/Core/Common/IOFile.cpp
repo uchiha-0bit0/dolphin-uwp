@@ -11,6 +11,9 @@
 
 #include "Common/CommonFuncs.h"
 #include "Common/StringUtil.h"
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/FileSystem.h"
+#endif
 #else
 #include <unistd.h>
 #endif
@@ -67,7 +70,10 @@ bool IOFile::Open(const std::string& filename, const char openmode[],
 {
   Close();
 
-#ifdef _WIN32
+#ifdef DOLPHIN_UWP
+  m_file = Common::UWP::OpenCFile(filename, openmode, FILE_SHARE_READ);
+  m_good = m_file != nullptr;
+#elif defined(_WIN32)
   if (sh == SharedAccess::Default)
   {
     m_good = _tfopen_s(&m_file, UTF8ToTStr(filename).c_str(), UTF8ToTStr(openmode).c_str()) == 0;

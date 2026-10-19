@@ -28,8 +28,12 @@ public:
   void ClearBlock(u32 address) override;
   void ClearAll() override;
   void DoState(PointerWrap& p) override;
+  void Flush() override;
 
 private:
+  // Returns false when the file can't be written.
+  bool WriteToFile();
+
   bool IsAddressInBounds(u32 address, u32 length) const
   {
     const u64 end_address = static_cast<u64>(address) + static_cast<u64>(length);
@@ -41,6 +45,7 @@ private:
   std::unique_ptr<u8[]> m_flush_buffer;
   std::thread m_flush_thread;
   std::mutex m_flush_mutex;
+  std::mutex m_file_mutex;
   Common::Event m_flush_trigger;
   Common::Flag m_dirty;
   u32 m_memory_card_size;

@@ -26,10 +26,15 @@ static bool IsTearingSupported(IDXGIFactory2* dxgi_factory)
          allow_tearing != 0;
 }
 
-static bool GetFullscreenState(IDXGISwapChain* swap_chain)
+static bool GetFullscreenState([[maybe_unused]] IDXGISwapChain* swap_chain)
 {
+#ifdef DOLPHIN_UWP
+  // Core window swap chains are always composed by the shell and never enter exclusive fullscreen.
+  return false;
+#else
   BOOL fs = FALSE;
   return SUCCEEDED(swap_chain->GetFullscreenState(&fs, nullptr)) && fs;
+#endif
 }
 
 namespace D3DCommon
@@ -62,6 +67,61 @@ u32 SwapChain::GetSwapChainFlags() const
   return m_allow_tearing_supported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 }
 
+#ifdef DOLPHIN_UWP
+bool SwapChain::CreateSwapChain(bool stereo, bool hdr)
+{
+  m_width = static_cast<u32>(std::max(m_wsi.render_surface_width, 1));
+  m_height = static_cast<u32>(std::max(m_wsi.render_surface_height, 1));
+  m_stereo = false;
+  m_hdr = false;
+
+  Microsoft::WRL::ComPtr<IDXGIFactory2> dxgi_factory2;
+  HRESULT hr = m_dxgi_factory.As(&dxgi_factory2);
+  if (SUCCEEDED(hr))
+  {
+    m_allow_tearing_supported = IsTearingSupported(dxgi_factory2.Get());
+
+    DXGI_SWAP_CHAIN_DESC1 swap_chain_desc = {};
+    swap_chain_desc.Width = m_width;
+    swap_chain_desc.Height = m_height;
+    swap_chain_desc.BufferCount = SWAP_CHAIN_BUFFER_COUNT;
+    swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swap_chain_desc.SampleDesc.Count = 1;
+    swap_chain_desc.Format = GetDXGIFormatForAbstractFormat(m_texture_format, false);
+    swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
+    swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    swap_chain_desc.Stereo = stereo;
+    swap_chain_desc.Flags = GetSwapChainFlags();
+
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain1;
+    hr = dxgi_factory2->CreateSwapChainForCoreWindow(
+        m_d3d_device.Get(), static_cast<IUnknown*>(m_wsi.render_surface), &swap_chain_desc,
+        nullptr, &swap_chain1);
+    m_swap_chain = swap_chain1;
+  }
+
+  if (FAILED(hr))
+  {
+    PanicAlertFmt("Failed to create swap chain: {}", Common::HRWrap(hr));
+    return false;
+  }
+
+  m_stereo = stereo;
+  if (hdr)
+    EnableHDR();
+
+  if (!CreateSwapChainBuffers())
+  {
+    PanicAlertFmt("Failed to create swap chain buffers");
+    DestroySwapChainBuffers();
+    m_swap_chain.Reset();
+    return false;
+  }
+
+  return true;
+}
+#else
 bool SwapChain::CreateSwapChain(bool stereo, bool hdr)
 {
   RECT client_rc;
@@ -149,36 +209,8 @@ bool SwapChain::CreateSwapChain(bool stereo, bool hdr)
     WARN_LOG_FMT(VIDEO, "MakeWindowAssociation() failed: {}", Common::HRWrap(hr));
 
   m_stereo = stereo;
-
   if (hdr)
-  {
-    // Only try to activate HDR here, to avoid failing when creating the swapchain
-    // (we can't know if the format is supported upfront)
-    Microsoft::WRL::ComPtr<IDXGISwapChain4> swap_chain4;
-    hr = m_swap_chain.As(&swap_chain4);
-    if (SUCCEEDED(hr))
-    {
-      UINT color_space_support = 0;
-      // Note that this should succeed even if HDR is not currently engaged on the monitor,
-      // but it should display fine nonetheless.
-      // We need to check for DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 as checking for
-      // scRGB always returns false (DX bug).
-      hr = swap_chain4->CheckColorSpaceSupport(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020,
-                                               &color_space_support);
-      if (SUCCEEDED(hr) && (color_space_support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
-      {
-        hr = swap_chain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, 0, 0,
-                                        GetDXGIFormatForAbstractFormat(m_texture_format_hdr, false),
-                                        GetSwapChainFlags());
-        if (SUCCEEDED(hr))
-        {
-          hr = swap_chain4->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709);
-          if (SUCCEEDED(hr))
-            m_hdr = hdr;
-        }
-      }
-    }
-  }
+    EnableHDR();
 
   if (!CreateSwapChainBuffers())
   {
@@ -189,6 +221,37 @@ bool SwapChain::CreateSwapChain(bool stereo, bool hdr)
   }
 
   return true;
+}
+#endif
+
+void SwapChain::EnableHDR()
+{
+  // Only try to activate HDR here, to avoid failing when creating the swapchain
+  // (we can't know if the format is supported upfront)
+  Microsoft::WRL::ComPtr<IDXGISwapChain4> swap_chain4;
+  HRESULT hr = m_swap_chain.As(&swap_chain4);
+  if (FAILED(hr))
+    return;
+
+  UINT color_space_support = 0;
+  // Note that this should succeed even if HDR is not currently engaged on the monitor,
+  // but it should display fine nonetheless.
+  // We need to check for DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 as checking for
+  // scRGB always returns false (DX bug).
+  hr = swap_chain4->CheckColorSpaceSupport(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020,
+                                           &color_space_support);
+  if (FAILED(hr) || !(color_space_support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT))
+    return;
+
+  hr = swap_chain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, m_width, m_height,
+                                  GetDXGIFormatForAbstractFormat(m_texture_format_hdr, false),
+                                  GetSwapChainFlags());
+  if (SUCCEEDED(hr))
+  {
+    hr = swap_chain4->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709);
+    if (SUCCEEDED(hr))
+      m_hdr = true;
+  }
 }
 
 void SwapChain::DestroySwapChain()
@@ -265,9 +328,11 @@ bool SwapChain::GetFullscreen() const
   return GetFullscreenState(m_swap_chain.Get());
 }
 
-void SwapChain::SetFullscreen(bool request)
+void SwapChain::SetFullscreen([[maybe_unused]] bool request)
 {
+#ifndef DOLPHIN_UWP
   m_swap_chain->SetFullscreenState(request, nullptr);
+#endif
 }
 
 bool SwapChain::CheckForFullscreenChange()

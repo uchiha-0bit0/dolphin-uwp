@@ -13,7 +13,7 @@
 #include "Common/IOFile.h"
 
 #ifdef _WIN32
-#include <process.h>
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -29,6 +29,15 @@ namespace Common::JitRegister
 {
 static bool s_is_enabled = false;
 
+static auto GetProcessID()
+{
+#ifdef _WIN32
+  return GetCurrentProcessId();
+#else
+  return getpid();
+#endif
+}
+
 void Init(const std::string& perf_dir)
 {
 #ifdef USE_VTUNE
@@ -38,7 +47,7 @@ void Init(const std::string& perf_dir)
   if (!perf_dir.empty() || getenv("PERF_BUILDID_DIR"))
   {
     const std::string dir = perf_dir.empty() ? "/tmp" : perf_dir;
-    const std::string filename = fmt::format("{}/perf-{}.map", dir, getpid());
+    const std::string filename = fmt::format("{}/perf-{}.map", dir, GetProcessID());
     if (s_perf_map_file.Open(filename, "w"))
     {
       // Disable buffering in order to avoid missing some mappings

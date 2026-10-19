@@ -3,7 +3,7 @@
 
 #pragma once
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 
 // clang-format off
 #include <windows.h>
@@ -29,7 +29,7 @@ struct IMMDeviceEnumerator;
 
 class WASAPIStream final : public SoundStream
 {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 public:
   explicit WASAPIStream();
   ~WASAPIStream() override;

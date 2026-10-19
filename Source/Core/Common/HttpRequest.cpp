@@ -12,6 +12,9 @@
 #include "Common/Logging/Log.h"
 #include "Common/ScopeGuard.h"
 #include "Common/StringUtil.h"
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/RootCertificates.h"
+#endif
 
 namespace Common
 {
@@ -147,6 +150,16 @@ HttpRequest::Impl::Impl(std::chrono::milliseconds timeout_ms, ProgressCallback c
       m_curl.get(), CURLOPT_LOW_SPEED_TIME,
       static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(timeout_ms).count()));
   curl_easy_setopt(m_curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1);
+
+#ifdef DOLPHIN_UWP
+  // The TLS backend used here cannot read the Windows certificate store.
+  const std::string& certificates = UWP::GetRootCertificatesPem();
+  if (!certificates.empty())
+  {
+    curl_blob blob{const_cast<char*>(certificates.data()), certificates.size(), CURL_BLOB_NOCOPY};
+    curl_easy_setopt(m_curl.get(), CURLOPT_CAINFO_BLOB, &blob);
+  }
+#endif
 }
 
 bool HttpRequest::Impl::IsValid() const

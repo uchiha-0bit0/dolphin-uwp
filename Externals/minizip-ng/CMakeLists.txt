@@ -42,3 +42,6 @@ set(PKGCONFIG_FOUND FALSE)
 
 add_subdirectory(minizip-ng)
 dolphin_disable_warnings(minizip-ng)
+if(WINDOWS_STORE)
+  target_compile_options(minizip-ng PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/BrokeredFiles.h")
+endif()

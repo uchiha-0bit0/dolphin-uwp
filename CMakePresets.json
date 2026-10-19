@@ -231,6 +231,36 @@
       "name": "ninja-debug-arm64",
       "displayName": "Configure: Debug - Ninja - ARM64",
       "inherits": ["debug-arm64", "ninja-arm64"]
+    },
+
+    {
+      "name": "visualstudio-release-uwp-x64",
+      "displayName": "Configure: Release - Visual Studio 2022 - UWP x64",
+      "inherits": ["release"],
+      "generator": "Visual Studio 17 2022",
+      "toolset": {
+        "value": "v143",
+        "strategy": "set"
+      },
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "binaryDir": "${sourceDir}/build/uwp/x64",
+      "cacheVariables": {
+        "ARCH": "x86_64",
+        "CMAKE_SYSTEM_NAME": "WindowsStore",
+        "CMAKE_SYSTEM_VERSION": "10.0",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/CMake/DolphinToolchain.cmake",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/Source/Core/DolphinUWP",
+        "VCPKG_TARGET_TRIPLET": "x64-uwp-static-md"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     }
   ],
   "buildPresets": [
@@ -329,6 +359,19 @@
       "name": "ninja-build-debug-arm64",
       "displayName": "Build: Debug - Ninja - ARM64",
       "configurePreset": "ninja-debug-arm64"
+    },
+
+    {
+      "name": "visualstudio-build-release-uwp-x64",
+      "displayName": "Build: Release - Visual Studio 2022 - UWP x64",
+      "configurePreset": "visualstudio-release-uwp-x64",
+      "configuration": "Release",
+      "targets": ["dolphin-uwp"],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     }
   ],
   "workflowPresets": [

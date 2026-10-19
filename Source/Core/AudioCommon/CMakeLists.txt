@@ -72,7 +72,15 @@ else()
   message(STATUS "PulseAudio explicitly disabled, disabling PulseAudio sound backend")
 endif()
 
-if(WIN32)
+if(WINDOWS_STORE)
+  target_sources(audiocommon PRIVATE
+    UWPAudioCapture.cpp
+    UWPAudioCapture.h
+    XAudio2Stream.cpp
+    XAudio2Stream.h
+  )
+  target_link_libraries(audiocommon PRIVATE mmdevapi.lib xaudio2.lib)
+elseif(WIN32)
   target_sources(audiocommon PRIVATE
     # Dolphin loads openal32.dll at runtime
     OpenALStream.cpp

@@ -3,8 +3,6 @@
 
 #include "Common/JsonUtil.h"
 
-#include <fstream>
-
 #include "Common/FileUtil.h"
 
 picojson::object ToJsonObject(const Common::Vec3& vec)
@@ -45,14 +43,7 @@ std::optional<bool> ReadBoolFromJson(const picojson::object& obj, const std::str
 
 bool JsonToFile(const std::string& filename, const picojson::value& root, bool prettify)
 {
-  std::ofstream json_stream;
-  File::OpenFStream(json_stream, filename, std::ios_base::out);
-  if (!json_stream.is_open())
-  {
-    return false;
-  }
-  json_stream << root.serialize(prettify);
-  return true;
+  return File::WriteStringToFile(filename, root.serialize(prettify));
 }
 
 bool JsonFromFile(const std::string& filename, picojson::value* root, std::string* error)

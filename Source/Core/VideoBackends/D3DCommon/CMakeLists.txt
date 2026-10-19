@@ -14,6 +14,10 @@ PUBLIC
   spirv_cross
 )
 
+if(WINDOWS_STORE)
+  target_link_libraries(videod3dcommon PUBLIC dxgi.lib d3dcompiler.lib)
+endif()
+
 if(MSVC)
   # Add precompiled header
   target_link_libraries(videod3dcommon PRIVATE use_pch)

@@ -13,6 +13,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/FileSystem.h"
+#endif
 #elifdef ANDROID
 #include "jni/AndroidCommon/AndroidCommon.h"
 #endif
@@ -48,11 +51,13 @@ std::vector<std::string> DoFileSearch(std::span<const std::string_view> director
   };
 
   std::vector<std::string> result;
+#ifndef DOLPHIN_UWP
   auto add_filtered = [&](const fs::directory_entry& entry) {
     auto& path = entry.path();
     if (accept_all || (!entry.is_directory() && ext_matches(path)))
       result.emplace_back(PathToString(path));
   };
+#endif
   for (const auto& directory : directories)
   {
 #ifdef ANDROID
@@ -66,6 +71,15 @@ std::vector<std::string> DoFileSearch(std::span<const std::string_view> director
     }
     else
 #endif
+#ifdef DOLPHIN_UWP
+    {
+      UWP::ForEachDirectoryEntry(directory, recursive,
+                                 [&](const std::wstring& path, bool is_directory) {
+                                   if (accept_all || (!is_directory && ext_matches(path)))
+                                     result.emplace_back(WStringToUTF8(path));
+                                 });
+    }
+#else
     {
       fs::path directory_path = StringToPath(directory);
       std::error_code error;
@@ -84,6 +98,7 @@ std::vector<std::string> DoFileSearch(std::span<const std::string_view> director
       if (error)
         ERROR_LOG_FMT(COMMON, "{} error on {}: {}", __func__, directory, error.message());
     }
+#endif
   }
 
   // Remove duplicates (occurring because caller gave e.g. duplicate or overlapping directories -

@@ -7,9 +7,11 @@
 #include <cstring>
 #include <mutex>
 
+#ifdef HAVE_CUBEB
 #include <cubeb/cubeb.h>
 
 #include "AudioCommon/CubebUtils.h"
+#endif
 #include "Common/BitUtils.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
@@ -26,6 +28,61 @@
 
 namespace ExpansionInterface
 {
+void CEXIMic::AddSamples(const s16* samples, long count)
+{
+  std::lock_guard lk(m_ring_lock);
+
+  for (long i = 0; i < count; i++)
+  {
+    m_stream_buffer[m_stream_wpos] = samples[i];
+    m_stream_wpos = (m_stream_wpos + 1) % m_stream_size;
+  }
+
+  m_samples_avail += count;
+  if (m_samples_avail > m_stream_size)
+  {
+    m_samples_avail = 0;
+    m_status.buff_ovrflw = 1;
+  }
+}
+
+#ifdef DOLPHIN_UWP
+void CEXIMic::StreamInit()
+{
+  m_stream_buffer.clear();
+  m_samples_avail = 0;
+  m_stream_wpos = 0;
+  m_stream_rpos = 0;
+}
+
+void CEXIMic::StreamTerminate()
+{
+  StreamStop();
+}
+
+void CEXIMic::StreamStart()
+{
+  {
+    std::lock_guard lk(m_ring_lock);
+    m_stream_size = m_buff_size_samples * 500;
+    m_stream_buffer.reset(m_stream_size);
+  }
+  m_capture.Start(m_sample_rate, [this](const s16* samples, u32 count) {
+    AddSamples(samples, static_cast<long>(count));
+  });
+}
+
+void CEXIMic::StreamStop()
+{
+  m_capture.Stop();
+
+  m_samples_avail = 0;
+  m_stream_wpos = 0;
+  m_stream_rpos = 0;
+
+  m_stream_buffer.clear();
+}
+#else
 void CEXIMic::StreamInit()
 {
   m_stream_buffer.clear();
@@ -69,24 +126,7 @@ static void state_callback(cubeb_stream* stream, void* user_data, cubeb_state st
 long CEXIMic::DataCallback(cubeb_stream* stream, void* user_data, const void* input_buffer,
                            void* /*output_buffer*/, long nframes)
 {
-  CEXIMic* mic = static_cast<CEXIMic*>(user_data);
-
-  std::lock_guard lk(mic->m_ring_lock);
-
-  const s16* buff_in = static_cast<const s16*>(input_buffer);
-  for (long i = 0; i < nframes; i++)
-  {
-    mic->m_stream_buffer[mic->m_stream_wpos] = buff_in[i];
-    mic->m_stream_wpos = (mic->m_stream_wpos + 1) % mic->m_stream_size;
-  }
-
-  mic->m_samples_avail += nframes;
-  if (mic->m_samples_avail > mic->m_stream_size)
-  {
-    mic->m_samples_avail = 0;
-    mic->m_status.buff_ovrflw = 1;
-  }
-
+  static_cast<CEXIMic*>(user_data)->AddSamples(static_cast<const s16*>(input_buffer), nframes);
   return nframes;
 }
 
@@ -159,6 +199,7 @@ void CEXIMic::StreamStop()
 
   m_stream_buffer.clear();
 }
+#endif
 
 void CEXIMic::StreamReadOne()
 {

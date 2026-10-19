@@ -3,6 +3,10 @@
 
 #include "VideoCommon/FrameDumper.h"
 
+#include <algorithm>
+#include <cmath>
+#include <mutex>
+
 #include "Common/Assert.h"
 #include "Common/FileUtil.h"
 #include "Common/Image.h"
@@ -20,6 +24,9 @@
 // The video encoder needs the image to be a multiple of x samples.
 static constexpr int VIDEO_ENCODER_LCM = 4;
 
+static std::mutex s_stream_sink_lock;
+static FrameDumper::StreamSink* s_stream_sink = nullptr;
+
 static bool DumpFrameToPNG(const FrameData& frame, const std::string& file_name)
 {
   return Common::ConvertRGBAToRGBAndSavePNG(file_name, frame.data, frame.width, frame.height,
@@ -36,6 +43,112 @@ FrameDumper::FrameDumper()
 FrameDumper::~FrameDumper()
 {
   ShutdownFrameDumping();
+}
+
+void FrameDumper::SetStreamSink(StreamSink* sink)
+{
+  std::lock_guard<std::mutex> lk(s_stream_sink_lock);
+  s_stream_sink = sink;
+}
+
+void FrameDumper::StreamCurrentFrame(const AbstractTexture* src_texture,
+                                     const MathUtil::Rectangle<int>& src_rect, float aspect_ratio)
+{
+  std::lock_guard<std::mutex> lk(s_stream_sink_lock);
+
+  // Deliver the frame read back since the previous present.
+  if (m_stream_frame_pending)
+  {
+    m_stream_frame_pending = false;
+    m_stream_readback_texture->Flush();
+    if (s_stream_sink && m_stream_readback_texture->Map())
+    {
+      s_stream_sink->SubmitFrame(
+          reinterpret_cast<const u8*>(m_stream_readback_texture->GetMappedPointer()),
+          m_stream_readback_texture->GetWidth(), m_stream_readback_texture->GetHeight(),
+          static_cast<u32>(m_stream_readback_texture->GetMappedStride()));
+      m_stream_readback_texture->Unmap();
+    }
+  }
+
+  if (!s_stream_sink)
+  {
+    ReleaseStreamTextures();
+    return;
+  }
+
+  const std::optional<std::pair<u32, u32>> size = s_stream_sink->RequestFrame();
+  if (!size || size->first == 0 || size->second == 0 ||
+      !CheckStreamTextures(size->first, size->second))
+  {
+    return;
+  }
+
+  const int width = static_cast<int>(size->first);
+  const int height = static_cast<int>(size->second);
+  MathUtil::Rectangle<int> target_rect(0, 0, width, height);
+  if (aspect_ratio > 0.0f)
+  {
+    if (aspect_ratio > static_cast<float>(width) / height)
+    {
+      const int scaled = std::clamp(static_cast<int>(std::lround(width / aspect_ratio)), 1, height);
+      target_rect.top = (height - scaled) / 2;
+      target_rect.bottom = target_rect.top + scaled;
+    }
+    else
+    {
+      const int scaled = std::clamp(static_cast<int>(std::lround(height * aspect_ratio)), 1, width);
+      target_rect.left = (width - scaled) / 2;
+      target_rect.right = target_rect.left + scaled;
+    }
+  }
+
+  if (target_rect != m_stream_render_framebuffer->GetRect())
+    g_gfx->SetAndClearFramebuffer(m_stream_render_framebuffer.get(), {{0.0f, 0.0f, 0.0f, 1.0f}});
+  g_gfx->ScaleTexture(m_stream_render_framebuffer.get(), target_rect, src_texture, src_rect);
+  m_stream_readback_texture->CopyFromTexture(m_stream_render_texture.get(),
+                                             m_stream_render_texture->GetRect(), 0, 0,
+                                             m_stream_readback_texture->GetRect());
+  m_stream_frame_pending = true;
+}
+
+bool FrameDumper::CheckStreamTextures(u32 width, u32 height)
+{
+  if (m_stream_render_texture && m_stream_render_texture->GetWidth() == width &&
+      m_stream_render_texture->GetHeight() == height)
+  {
+    return true;
+  }
+
+  ReleaseStreamTextures();
+  m_stream_render_texture = g_gfx->CreateTexture(
+      TextureConfig(width, height, 1, 1, 1, AbstractTextureFormat::RGBA8,
+                    AbstractTextureFlag_RenderTarget, AbstractTextureType::Texture_2DArray),
+      "Stream render texture");
+  if (m_stream_render_texture)
+  {
+    m_stream_render_framebuffer = g_gfx->CreateFramebuffer(m_stream_render_texture.get(), nullptr);
+    m_stream_readback_texture = g_gfx->CreateStagingTexture(
+        StagingTextureType::Readback,
+        TextureConfig(width, height, 1, 1, 1, AbstractTextureFormat::RGBA8, 0,
+                      AbstractTextureType::Texture_2DArray));
+  }
+
+  if (!m_stream_render_framebuffer || !m_stream_readback_texture)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to allocate {}x{} stream textures", width, height);
+    ReleaseStreamTextures();
+    return false;
+  }
+  return true;
+}
+
+void FrameDumper::ReleaseStreamTextures()
+{
+  m_stream_frame_pending = false;
+  m_stream_readback_texture.reset();
+  m_stream_render_framebuffer.reset();
+  m_stream_render_texture.reset();
 }
 
 void FrameDumper::DumpCurrentFrame(const AbstractTexture* src_texture,

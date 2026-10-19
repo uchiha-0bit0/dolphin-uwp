@@ -931,8 +931,8 @@ void AchievementManager::LoginCallback(int result, const char* error_message, rc
   auto& instance = AchievementManager::GetInstance();
   if (result != RC_OK)
   {
-    WARN_LOG_FMT(ACHIEVEMENTS, "Failed to login {} to RetroAchievements server.",
-                 Config::Get(Config::RA_USERNAME));
+    WARN_LOG_FMT(ACHIEVEMENTS, "Failed to login {} to RetroAchievements server: {}",
+                 Config::Get(Config::RA_USERNAME), error_message ? error_message : "");
     Config::SetBaseOrCurrent(Config::RA_API_TOKEN, "");
     instance.update_event.Trigger({.failed_login_code = result});
     instance.login_event.Trigger(result);

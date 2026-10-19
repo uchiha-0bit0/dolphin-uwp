@@ -468,6 +468,25 @@ if(ENABLE_HEADLESS)
   set(USE_DISCORD_PRESENCE 0)
 endif()
 
+if(WINDOWS_STORE)
+  message(STATUS "Building for UWP")
+  add_definitions(-DDOLPHIN_UWP)
+  add_definitions(-D_WIN32_WINNT=0x0A00)
+  set(ENABLE_QT 0)
+  set(ENABLE_NOGUI 0)
+  set(ENABLE_CLI_TOOL 0)
+  set(ENABLE_TESTS 0)
+  set(ENABLE_AUTOUPDATE 0)
+  set(ENABLE_ANALYTICS 0)
+  set(ENABLE_VULKAN 0)
+  set(ENABLE_SDL 0)
+  set(ENABLE_CUBEB 0)
+  set(ENABLE_LLVM 0)
+  set(ENCODE_FRAMEDUMPS 0)
+  set(USE_DISCORD_PRESENCE 0)
+  set(RC_CLIENT_SUPPORTS_RAINTEGRATION 0)
+endif()
+
 # Set file offset size to 64 bits. On modern Unixes, this is typically already the case. Exceptions:
 #
 # glibc may default to 32 bits. This can be configured by setting _FILE_OFFSET_BITS=64.
@@ -625,6 +644,13 @@ dolphin_find_optional_system_library_pkgconfig(FMT
 add_subdirectory(Externals/imgui)
 add_subdirectory(Externals/implot)
 
+if(WINDOWS_STORE)
+  set(UWP_IMGUI_FRONTEND_IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Externals/imgui/imgui")
+  add_subdirectory(Externals/UwpImGuiFrontend)
+  target_link_libraries(UwpImGuiFrontend PUBLIC imgui)
+  dolphin_disable_warnings(UwpImGuiFrontend)
+endif()
+
 dolphin_find_optional_system_library(glslang Externals/glslang DOLPHIN_TRY_VERSIONS 15 16)
 
 # SPIRV-Cross is used on Windows for GLSL to HLSL conversion for the Direct3D 11 and Direct3D 12
@@ -647,8 +673,8 @@ if(ENABLE_VULKAN)
   endif()
 endif()
 
-if(NOT (WIN32 AND _M_ARM_64))
-  # OpenGL is available on all platforms except windows-arm64
+if(NOT (WIN32 AND _M_ARM_64) AND NOT WINDOWS_STORE)
+  # OpenGL is available on all platforms except windows-arm64 and UWP
   add_definitions(-DHAS_OPENGL)
 endif()
 
@@ -701,7 +727,7 @@ if(ENABLE_CUBEB)
   add_definitions(-DHAVE_CUBEB)
 endif()
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT WINDOWS_STORE)
   dolphin_find_optional_system_library(LibUSB Externals/libusb)
   add_definitions(-D__LIBUSB__)
 endif()
@@ -719,10 +745,14 @@ if(USE_UPNP)
 endif()
 
 dolphin_find_optional_system_library(MBEDTLS Externals/mbedtls 2.28)
+if(WINDOWS_STORE)
+  # The platform entropy source uses CryptGenRandom, which is unavailable to UWP apps
+  target_compile_definitions(mbedcrypto PUBLIC MBEDTLS_NO_PLATFORM_ENTROPY MBEDTLS_ENTROPY_HARDWARE_ALT)
+endif()
 
 dolphin_find_optional_system_library(CURL Externals/curl)
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT WINDOWS_STORE)
   dolphin_find_optional_system_library(HIDAPI Externals/hidapi)
 endif()
 
@@ -762,7 +792,7 @@ endif()
 add_subdirectory(Externals/watcher)
 
 # Any other platform or BSD is currently unsupported by cpp-ipc
-if(WIN32 OR LINUX OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" OR CMAKE_SYSTEM_NAME STREQUAL "QNX")
+if((WIN32 AND NOT WINDOWS_STORE) OR LINUX OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" OR CMAKE_SYSTEM_NAME STREQUAL "QNX")
   add_subdirectory(Externals/cpp-ipc)
   add_definitions(-DHAVE_CPPIPC)
 endif()

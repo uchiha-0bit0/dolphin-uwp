@@ -3,7 +3,6 @@
 
 #include "VideoCommon/GraphicsModSystem/Config/GraphicsModGroup.h"
 
-#include <fstream>
 #include <map>
 #include <string>
 
@@ -131,13 +130,6 @@ void GraphicsModGroupConfig::Load()
 void GraphicsModGroupConfig::Save() const
 {
   const std::string file_path = GetPath();
-  std::ofstream json_stream;
-  File::OpenFStream(json_stream, file_path, std::ios_base::out);
-  if (!json_stream.is_open())
-  {
-    ERROR_LOG_FMT(VIDEO, "Failed to open graphics mod group json file '{}' for writing", file_path);
-    return;
-  }
 
   picojson::object serialized_root;
   picojson::array serialized_mods;
@@ -150,7 +142,8 @@ void GraphicsModGroupConfig::Save() const
   serialized_root.emplace("mods", std::move(serialized_mods));
 
   const auto output = picojson::value{serialized_root}.serialize(true);
-  json_stream << output;
+  if (!File::WriteStringToFile(file_path, output))
+    ERROR_LOG_FMT(VIDEO, "Failed to write graphics mod group json file '{}'", file_path);
 }
 
 void GraphicsModGroupConfig::SetChangeCount(u32 change_count)
@@ -191,6 +184,5 @@ const std::string& GraphicsModGroupConfig::GetGameID() const
 
 std::string GraphicsModGroupConfig::GetPath() const
 {
-  const std::string game_mod_root = File::GetUserPath(D_CONFIG_IDX) + GRAPHICSMOD_CONFIG_DIR;
-  return fmt::format("{}/{}.json", game_mod_root, m_game_id);
+  return fmt::format("{}{}.json", File::GetUserPath(D_GRAPHICSMODCONFIG_IDX), m_game_id);
 }

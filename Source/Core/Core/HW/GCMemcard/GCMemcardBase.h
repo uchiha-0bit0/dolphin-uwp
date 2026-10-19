@@ -23,6 +23,8 @@ public:
   virtual void ClearBlock(u32 address) = 0;
   virtual void ClearAll() = 0;
   virtual void DoState(PointerWrap& p) = 0;
+  // Writes the changes that haven't reached the file yet.
+  virtual void Flush() {}
   u32 GetCardId() const { return m_nintendo_card_id; }
 
 protected:

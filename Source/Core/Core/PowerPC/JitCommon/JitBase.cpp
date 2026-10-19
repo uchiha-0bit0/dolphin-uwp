@@ -27,6 +27,10 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <processthreadsapi.h>
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/Kernel32.h"
+using Common::Kernel32::SetThreadStackGuarantee;
+#endif
 #else
 #include <unistd.h>
 #endif

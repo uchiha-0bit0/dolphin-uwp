@@ -161,6 +161,7 @@
 
 // Subdirs in Config
 #define GRAPHICSMOD_CONFIG_DIR "GraphicMods"
+#define CONTROLLER_PROFILES_DIR "Profiles"
 
 // GPU drivers
 #define GPU_DRIVERS "GpuDrivers"

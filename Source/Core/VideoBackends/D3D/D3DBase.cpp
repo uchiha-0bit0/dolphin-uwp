@@ -21,6 +21,18 @@
 namespace DX11
 {
 static Common::DynamicLibrary s_d3d11_library;
+
+static bool LoadCreateDevice(Common::DynamicLibrary& library,
+                             PFN_D3D11_CREATE_DEVICE* d3d11_create_device)
+{
+#ifdef DOLPHIN_UWP
+  *d3d11_create_device = D3D11CreateDevice;
+  return true;
+#else
+  return library.Open("d3d11.dll") && library.GetSymbol("D3D11CreateDevice", d3d11_create_device);
+#endif
+}
+
 namespace D3D
 {
 ComPtr<IDXGIFactory> dxgi_factory;
@@ -40,8 +52,7 @@ constexpr std::array<D3D_FEATURE_LEVEL, 3> s_supported_feature_levels{
 bool Create(u32 adapter_index, bool enable_debug_layer)
 {
   PFN_D3D11_CREATE_DEVICE d3d11_create_device;
-  if (!s_d3d11_library.Open("d3d11.dll") ||
-      !s_d3d11_library.GetSymbol("D3D11CreateDevice", &d3d11_create_device))
+  if (!LoadCreateDevice(s_d3d11_library, &d3d11_create_device))
   {
     PanicAlertFmtT("Failed to load d3d11.dll");
     s_d3d11_library.Close();
@@ -184,11 +195,8 @@ std::vector<u32> GetAAModes(u32 adapter_index)
     temp_dxgi_factory->EnumAdapters(adapter_index, &adapter);
 
     PFN_D3D11_CREATE_DEVICE d3d11_create_device;
-    if (!temp_lib.Open("d3d11.dll") ||
-        !temp_lib.GetSymbol("D3D11CreateDevice", &d3d11_create_device))
-    {
+    if (!LoadCreateDevice(temp_lib, &d3d11_create_device))
       return {};
-    }
 
     HRESULT hr = d3d11_create_device(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0,
                                      s_supported_feature_levels.data(),
@@ -246,11 +254,8 @@ bool SupportsLogicOp(u32 adapter_index)
     temp_dxgi_factory->EnumAdapters(adapter_index, &adapter);
 
     PFN_D3D11_CREATE_DEVICE d3d11_create_device;
-    if (!temp_lib.Open("d3d11.dll") ||
-        !temp_lib.GetSymbol("D3D11CreateDevice", &d3d11_create_device))
-    {
+    if (!LoadCreateDevice(temp_lib, &d3d11_create_device))
       return false;
-    }
 
     HRESULT hr = d3d11_create_device(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0,
                                      s_supported_feature_levels.data(),

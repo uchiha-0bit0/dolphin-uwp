@@ -693,8 +693,6 @@ PUBLIC
   pugixml
   sfml-network
   videonull
-  videoogl
-  videosoftware
 
 PRIVATE
   FatFs
@@ -703,6 +701,10 @@ PRIVATE
   LZ4::LZ4
   ZLIB::ZLIB
 )
+
+if(NOT WINDOWS_STORE)
+  target_link_libraries(core PUBLIC videoogl videosoftware)
+endif()
 
 if(LIBUDEV_FOUND)
   target_include_directories(core PRIVATE ${LIBUDEV_INCLUDE_DIR})
@@ -726,6 +728,9 @@ endif()
 
 if(ENABLE_CUBEB)
   target_link_libraries(core PUBLIC cubeb)
+endif()
+
+if(ENABLE_CUBEB OR WINDOWS_STORE)
   target_sources(core PRIVATE
     HW/EXI/EXI_DeviceMic.cpp
     HW/EXI/EXI_DeviceMic.h
@@ -765,7 +770,17 @@ if(USE_MGBA)
   target_compile_definitions(core PUBLIC -DHAS_LIBMGBA)
 endif()
 
-if(WIN32)
+if(WINDOWS_STORE)
+  target_sources(core PRIVATE
+    HW/EXI/BBA/TAP_UWP.cpp
+  )
+  target_link_libraries(core PUBLIC
+    videod3d
+    videod3d12
+    iphlpapi.lib
+  )
+  target_compile_definitions(core PRIVATE "-D_WINSOCK_DEPRECATED_NO_WARNINGS")
+elseif(WIN32)
   target_sources(core PRIVATE
     HW/EXI/BBA/TAP_Win32.cpp
     HW/EXI/BBA/TAP_Win32.h

@@ -19,11 +19,25 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#ifdef DOLPHIN_UWP
+#include "InputCommon/ControllerInterface/UWP/UWP.h"
+#endif
 
 namespace IOS::HLE
 {
 namespace
 {
+#ifdef _WIN32
+bool IsVirtualKeyDown(int key)
+{
+#ifdef DOLPHIN_UWP
+  return ciface::UWP::IsKeyPressed(static_cast<u32>(key));
+#else
+  return (GetAsyncKeyState(key) & 0x8000) != 0;
+#endif
+}
+#endif
+
 // Crazy ugly
 #ifdef _WIN32
 constexpr std::array<u8, 256> s_key_codes_qwerty{
@@ -226,7 +240,7 @@ std::optional<IPCReply> USB_KBD::IOCtl(const IOCtlRequest& request)
 bool USB_KBD::IsKeyPressed(int key) const
 {
 #ifdef _WIN32
-  return (GetAsyncKeyState(key) & 0x8000) != 0;
+  return IsVirtualKeyDown(key);
 #else
   // TODO: do it for non-Windows platforms
   return false;
@@ -280,22 +294,22 @@ void USB_KBD::Update()
   }
 
 #ifdef _WIN32
-  if (GetAsyncKeyState(VK_LCONTROL) & 0x8000)
+  if (IsVirtualKeyDown(VK_LCONTROL))
     modifiers |= 0x01;
-  if (GetAsyncKeyState(VK_LSHIFT) & 0x8000)
+  if (IsVirtualKeyDown(VK_LSHIFT))
     modifiers |= 0x02;
-  if (GetAsyncKeyState(VK_MENU) & 0x8000)
+  if (IsVirtualKeyDown(VK_MENU))
     modifiers |= 0x04;
-  if (GetAsyncKeyState(VK_LWIN) & 0x8000)
+  if (IsVirtualKeyDown(VK_LWIN))
     modifiers |= 0x08;
-  if (GetAsyncKeyState(VK_RCONTROL) & 0x8000)
+  if (IsVirtualKeyDown(VK_RCONTROL))
     modifiers |= 0x10;
-  if (GetAsyncKeyState(VK_RSHIFT) & 0x8000)
+  if (IsVirtualKeyDown(VK_RSHIFT))
     modifiers |= 0x20;
   // TODO: VK_MENU is for ALT, not for ALT GR (ALT GR seems to work though...)
-  if (GetAsyncKeyState(VK_MENU) & 0x8000)
+  if (IsVirtualKeyDown(VK_MENU))
     modifiers |= 0x40;
-  if (GetAsyncKeyState(VK_RWIN) & 0x8000)
+  if (IsVirtualKeyDown(VK_RWIN))
     modifiers |= 0x80;
 #else
 // TODO: modifiers for non-Windows platforms

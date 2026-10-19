@@ -37,7 +37,7 @@ public:
   }
 
 private:
-#ifdef HAVE_CUBEB
+#if defined(HAVE_CUBEB) || defined(DOLPHIN_UWP)
   std::string GetInputDeviceId() const override
   {
     return Config::Get(Config::MAIN_WII_SPEAK_MICROPHONE);

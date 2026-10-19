@@ -209,6 +209,8 @@ if (APPLE)
     ${FOUNDATION_LIBRARY}
     ${IOK_LIBRARY}
   )
+elseif(WINDOWS_STORE)
+  target_link_libraries(common PRIVATE windowsapp.lib bcrypt.lib crypt32.lib)
 elseif(WIN32)
   target_link_libraries(common
   PRIVATE
@@ -232,6 +234,24 @@ if(ANDROID)
   target_sources(common PRIVATE
     Logging/ConsoleListenerDroid.cpp
     MemArenaAndroid.cpp
+  )
+elseif(WINDOWS_STORE)
+  target_sources(common PRIVATE
+    LdrWatcher.cpp
+    LdrWatcher.h
+    Logging/ConsoleListenerWin.cpp
+    MemArenaWin.cpp
+    UWP/Device.cpp
+    UWP/Device.h
+    UWP/FileSystem.cpp
+    UWP/FileSystem.h
+    UWP/Kernel32.cpp
+    UWP/Kernel32.h
+    UWP/MbedTLSEntropy.cpp
+    UWP/RootCertificates.cpp
+    UWP/RootCertificates.h
+    UWP/SystemLibrary.cpp
+    UWP/SystemLibrary.h
   )
 elseif(WIN32)
   target_sources(common PRIVATE
@@ -281,14 +301,16 @@ else()
 endif()
 
 # OpenGL Interface
-target_sources(common PRIVATE
-  GL/GLContext.cpp
-  GL/GLContext.h
-  GL/GLUtil.cpp
-  GL/GLUtil.h
-  GL/GLExtensions/GLExtensions.cpp
-  GL/GLExtensions/GLExtensions.h
-)
+if(NOT WINDOWS_STORE)
+  target_sources(common PRIVATE
+    GL/GLContext.cpp
+    GL/GLContext.h
+    GL/GLUtil.cpp
+    GL/GLUtil.h
+    GL/GLExtensions/GLExtensions.cpp
+    GL/GLExtensions/GLExtensions.h
+  )
+endif()
 
 if(ENABLE_EGL AND EGL_FOUND)
   target_sources(common PRIVATE
@@ -310,7 +332,13 @@ if(ENABLE_EGL AND EGL_FOUND)
   target_link_libraries(common PUBLIC ${EGL_LIBRARIES})
 endif()
 
-if(WIN32)
+if(WINDOWS_STORE)
+  target_sources(common PRIVATE
+    CompatPatches.cpp
+    WindowsRegistry.cpp
+  )
+  target_link_libraries(common PRIVATE "-INCLUDE:enableCompatPatches")
+elseif(WIN32)
   target_sources(common PRIVATE
     CompatPatches.cpp
     GL/GLInterface/WGL.cpp
@@ -379,7 +407,7 @@ if(UNIX)
   if(SYSTEMD_FOUND)
     target_link_libraries(traversal_server PRIVATE ${SYSTEMD_LIBRARIES})
   endif()
-elseif(WIN32)
+elseif(WIN32 AND NOT WINDOWS_STORE)
   find_package(PowerShell REQUIRED)
   execute_process(
     COMMAND ${POWERSHELL_EXE} -Command "[System.Diagnostics.FileVersionInfo]::GetVersionInfo('$ENV{VCToolsRedistDir}vc_redist.x64.exe').ProductVersion"

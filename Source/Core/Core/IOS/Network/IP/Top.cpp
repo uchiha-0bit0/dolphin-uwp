@@ -40,6 +40,47 @@
 #define MALLOC(x) HeapAlloc(GetProcessHeap(), 0, (x))
 #define FREE(x) HeapFree(GetProcessHeap(), 0, (x))
 
+#ifdef DOLPHIN_UWP
+// UWP apps cannot read the routing tables, so the first active adapter with a gateway is used.
+static std::vector<u8> GetActiveAdapters()
+{
+  ULONG size = 16 * 1024;
+  std::vector<u8> buffer(size);
+  for (int attempt = 0; attempt < 3; ++attempt)
+  {
+    const ULONG result =
+        GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr,
+                             reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data()), &size);
+    if (result == NO_ERROR)
+      return buffer;
+    if (result != ERROR_BUFFER_OVERFLOW)
+      break;
+    buffer.resize(size);
+  }
+  return {};
+}
+
+static const IP_ADAPTER_ADDRESSES* FindActiveAdapter(const std::vector<u8>& buffer)
+{
+  auto* adapter =
+      buffer.empty() ? nullptr : reinterpret_cast<const IP_ADAPTER_ADDRESSES*>(buffer.data());
+  for (; adapter; adapter = adapter->Next)
+  {
+    if (adapter->OperStatus == IfOperStatusUp && adapter->FirstGatewayAddress &&
+        adapter->FirstUnicastAddress)
+    {
+      return adapter;
+    }
+  }
+  return nullptr;
+}
+
+static in_addr GetSocketAddress(const SOCKET_ADDRESS& address)
+{
+  return reinterpret_cast<const sockaddr_in*>(address.lpSockaddr)->sin_addr;
+}
+#endif
+
 #else
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -204,7 +245,7 @@ static std::vector<InterfaceRouting> GetSystemInterfaceRouting()
 {
   std::vector<InterfaceRouting> routing_table;
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
   DWORD forward_table_size = 0;
   std::unique_ptr<MIB_IPFORWARDTABLE> forward_table;
   if (GetIpForwardTable(nullptr, &forward_table_size, FALSE) == ERROR_INSUFFICIENT_BUFFER)
@@ -367,7 +408,20 @@ static std::vector<InterfaceRouting> GetSystemInterfaceRouting()
 static std::optional<DefaultInterface> GetSystemDefaultInterface()
 {
   auto routing_table = GetSystemInterfaceRouting();
-#ifdef _WIN32
+#if defined(DOLPHIN_UWP)
+  const std::vector<u8> adapters = GetActiveAdapters();
+  if (const IP_ADAPTER_ADDRESSES* adapter = FindActiveAdapter(adapters))
+  {
+    const in_addr address = GetSocketAddress(adapter->FirstUnicastAddress->Address);
+    const u8 prefix_length = adapter->FirstUnicastAddress->OnLinkPrefixLength;
+    const u32 mask = prefix_length == 0 ? 0 : htonl(0xFFFFFFFFu << (32 - prefix_length));
+    const in_addr gateway = GetSocketAddress(adapter->FirstGatewayAddress->Address);
+    if (routing_table.empty())
+      routing_table = {{adapter->IfIndex, {}, {}, gateway}};
+    return DefaultInterface{address, std::bit_cast<in_addr>(mask),
+                            std::bit_cast<in_addr>(address.s_addr | ~mask), routing_table};
+  }
+#elif defined(_WIN32)
   std::unique_ptr<MIB_IPADDRTABLE> ip_table;
   DWORD ip_table_size = 0;
   if (GetIpAddrTable(nullptr, &ip_table_size, FALSE) == ERROR_INSUFFICIENT_BUFFER)
@@ -1055,7 +1109,15 @@ IPCReply NetIPTopDevice::HandleGetInterfaceOptRequest(const IOCtlVRequest& reque
     const u32 default_main_dns_resolver = ntohl(::inet_addr("8.8.8.8"));
     const u32 default_backup_dns_resolver = ntohl(::inet_addr("8.8.4.4"));
     u32 address = 0;
-#ifdef _WIN32
+#if defined(DOLPHIN_UWP)
+    if (!Core::WantsDeterminism())
+    {
+      const std::vector<u8> adapters = GetActiveAdapters();
+      const IP_ADAPTER_ADDRESSES* adapter = FindActiveAdapter(adapters);
+      if (adapter && adapter->FirstDnsServerAddress)
+        address = ntohl(GetSocketAddress(adapter->FirstDnsServerAddress->Address).s_addr);
+    }
+#elif defined(_WIN32)
     if (!Core::WantsDeterminism())
     {
       PIP_ADAPTER_ADDRESSES AdapterAddresses = nullptr;

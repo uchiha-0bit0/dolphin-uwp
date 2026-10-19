@@ -6,7 +6,9 @@
 #include <optional>
 #include <string>
 #include <vector>
+#ifndef DOLPHIN_UWP
 #include <winternl.h>
+#endif
 
 #include <fmt/format.h>
 #include <fmt/xchar.h>
@@ -15,6 +17,13 @@
 #include "Common/CommonTypes.h"
 #include "Common/LdrWatcher.h"
 #include "Common/StringUtil.h"
+
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/Kernel32.h"
+
+// winternl.h is limited to desktop builds.
+typedef LONG NTSTATUS;
+#endif
 
 typedef NTSTATUS(NTAPI* PRTL_HEAP_COMMIT_ROUTINE)(IN PVOID Base, IN OUT PVOID* CommitAddress,
                                                   IN OUT PSIZE_T CommitSize);
@@ -38,8 +47,15 @@ typedef PVOID (*RtlCreateHeap_t)(_In_ ULONG Flags, _In_opt_ PVOID HeapBase,
                                  _In_opt_ SIZE_T ReserveSize, _In_opt_ SIZE_T CommitSize,
                                  _In_opt_ PVOID Lock, _In_opt_ PRTL_HEAP_PARAMETERS Parameters);
 
-static HANDLE WINAPI HeapCreateLow4GB(_In_ DWORD flOptions, _In_ SIZE_T dwInitialSize,
-                                      _In_ SIZE_T dwMaximumSize)
+namespace
+{
+#ifdef DOLPHIN_UWP
+using Common::Kernel32::VirtualAlloc;
+using Common::Kernel32::VirtualProtect;
+#endif
+
+HANDLE WINAPI HeapCreateLow4GB(_In_ DWORD flOptions, _In_ SIZE_T dwInitialSize,
+                               _In_ SIZE_T dwMaximumSize)
 {
   auto ntdll = GetModuleHandleW(L"ntdll");
   if (!ntdll)
@@ -59,7 +75,7 @@ static HANDLE WINAPI HeapCreateLow4GB(_In_ DWORD flOptions, _In_ SIZE_T dwInitia
   return RtlCreateHeap(0, low_heap, 0, 0, nullptr, nullptr);
 }
 
-static bool ModifyProtectedRegion(void* address, size_t size, std::function<void()> func)
+bool ModifyProtectedRegion(void* address, size_t size, std::function<void()> func)
 {
   DWORD old_protect;
   if (!VirtualProtect(address, size, PAGE_READWRITE, &old_protect))
@@ -69,6 +85,7 @@ static bool ModifyProtectedRegion(void* address, size_t size, std::function<void
     return false;
   return true;
 }
+}  // namespace
 
 // Does not do input sanitization - assumes well-behaved input since Ldr has already parsed it.
 class ImportPatcher

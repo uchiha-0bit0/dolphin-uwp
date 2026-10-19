@@ -334,7 +334,7 @@ std::string ThousandSeparate(I value, int spaces = 0)
 #endif
 }
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 std::vector<std::string> CommandLineToUtf8Argv(const wchar_t* command_line);
 #endif
 

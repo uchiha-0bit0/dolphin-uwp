@@ -254,6 +254,23 @@ std::shared_ptr<Device> DeviceContainer::FindDevice(const DeviceQualifier& devq)
       return d;
   }
 
+#ifdef DOLPHIN_UWP
+  // Earlier versions could save the placeholder name that some Xbox system versions give an Xbox
+  // controller. Such a name finds the Xbox controller with the same number.
+  if (devq.source == "WGInput" &&
+      std::ranges::any_of(devq.name, [](char c) { return static_cast<unsigned char>(c) >= 0x80; }))
+  {
+    for (const auto& d : m_devices)
+    {
+      if (d->GetSource() == devq.source && d->GetId() == devq.cid &&
+          d->GetName() == "Xbox One Game Controller")
+      {
+        return d;
+      }
+    }
+  }
+#endif
+
   return nullptr;
 }
 

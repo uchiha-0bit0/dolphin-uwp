@@ -630,13 +630,59 @@ static bool COMIsInitialized()
   return CoGetApartmentType(&apt_type, &apt_qualifier) == S_OK;
 }
 
+#ifdef DOLPHIN_UWP
+// Some Xbox system versions return a placeholder for a controller's British English name, so
+// English systems read the name in American English.
+static std::wstring ReadDisplayName(const WGI::RawGameController& raw_game_controller)
+{
+  ULONG count = 0;
+  ULONG size = 0;
+  std::wstring languages;
+  if (GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME, &count, nullptr, &size))
+  {
+    languages.resize(size);
+    if (!GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME, &count, languages.data(), &size))
+      languages.clear();
+  }
+  if (!languages.starts_with(L"en"))
+    return std::wstring(raw_game_controller.DisplayName().c_str());
+
+  std::wstring thread_languages;
+  count = 0;
+  size = 0;
+  if (GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME | MUI_THREAD_LANGUAGES, &count, nullptr,
+                                    &size) &&
+      count != 0)
+  {
+    thread_languages.resize(size);
+    if (!GetThreadPreferredUILanguages(MUI_LANGUAGE_NAME | MUI_THREAD_LANGUAGES, &count,
+                                       thread_languages.data(), &size))
+    {
+      thread_languages.clear();
+    }
+  }
+  SetThreadPreferredUILanguages(MUI_LANGUAGE_NAME, L"en-US\0", &count);
+  Common::ScopeGuard restore_languages([&thread_languages] {
+    ULONG restored = 0;
+    SetThreadPreferredUILanguages(MUI_LANGUAGE_NAME,
+                                  thread_languages.empty() ? nullptr : thread_languages.c_str(),
+                                  &restored);
+  });
+  return std::wstring(raw_game_controller.DisplayName().c_str());
+}
+#endif
+
 static void AddDevice(const WGI::RawGameController& raw_game_controller)
 {
   // Get user-facing device name if available. Otherwise generate a name from vid/pid.
   std::string device_name;
   try
   {
+#ifdef DOLPHIN_UWP
+    device_name = StripWhitespace(WStringToUTF8(ReadDisplayName(raw_game_controller)));
+#else
     device_name = StripWhitespace(WStringToUTF8(raw_game_controller.DisplayName().c_str()));
+#endif
     if (device_name.empty())
     {
       const u16 vid = raw_game_controller.HardwareVendorId();

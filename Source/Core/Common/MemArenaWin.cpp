@@ -21,6 +21,10 @@
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
 
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/Kernel32.h"
+#endif
+
 using PVirtualAlloc2 = PVOID(WINAPI*)(HANDLE Process, PVOID BaseAddress, SIZE_T Size,
                                       ULONG AllocationType, ULONG PageProtection,
                                       MEM_EXTENDED_PARAMETER* ExtendedParameters,
@@ -38,6 +42,19 @@ using PIsApiSetImplemented = BOOL(APIENTRY*)(PCSTR Contract);
 
 namespace Common
 {
+#ifdef DOLPHIN_UWP
+using Kernel32::CreateFileMappingW;
+using Kernel32::MapViewOfFileEx;
+using Kernel32::VirtualAlloc;
+using Kernel32::VirtualProtect;
+
+static constexpr char VIRTUAL_ALLOC2_NAME[] = "VirtualAlloc2";
+static constexpr char MAP_VIEW_OF_FILE3_NAME[] = "MapViewOfFile3";
+#else
+static constexpr char VIRTUAL_ALLOC2_NAME[] = "VirtualAlloc2FromApp";
+static constexpr char MAP_VIEW_OF_FILE3_NAME[] = "MapViewOfFile3FromApp";
+#endif
+
 struct WindowsMemoryRegion
 {
   u8* m_start;
@@ -74,9 +91,9 @@ static bool InitWindowsMemoryFunctions(WindowsMemoryFunctions* functions)
   }
 
   void* const address_VirtualAlloc2 =
-      functions->m_api_ms_win_core_memory_l1_1_6_handle.GetSymbolAddress("VirtualAlloc2FromApp");
+      functions->m_api_ms_win_core_memory_l1_1_6_handle.GetSymbolAddress(VIRTUAL_ALLOC2_NAME);
   void* const address_MapViewOfFile3 =
-      functions->m_api_ms_win_core_memory_l1_1_6_handle.GetSymbolAddress("MapViewOfFile3FromApp");
+      functions->m_api_ms_win_core_memory_l1_1_6_handle.GetSymbolAddress(MAP_VIEW_OF_FILE3_NAME);
   void* const address_UnmapViewOfFileEx =
       functions->m_kernel32_handle.GetSymbolAddress("UnmapViewOfFileEx");
   if (address_VirtualAlloc2 && address_MapViewOfFile3 && address_UnmapViewOfFileEx)

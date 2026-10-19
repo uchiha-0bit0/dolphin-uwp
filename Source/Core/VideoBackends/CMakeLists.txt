@@ -1,6 +1,9 @@
-add_subdirectory(OGL)
 add_subdirectory(Null)
-add_subdirectory(Software)
+
+if(NOT WINDOWS_STORE)
+  add_subdirectory(OGL)
+  add_subdirectory(Software)
+endif()
 
 if(WIN32)
   add_subdirectory(D3DCommon)

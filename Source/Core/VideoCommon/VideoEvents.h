@@ -98,6 +98,10 @@ struct VideoEvents
 
   // An end of frame event that runs on the CPU thread
   Common::HookableEvent<> vi_end_field_event;
+
+  // An event called on the video thread while the on-screen UI frame is being built, with the
+  // ImGui lock held. Handlers may submit additional ImGui windows.
+  Common::HookableEvent<> on_screen_ui_event;
 };
 
 VideoEvents& GetVideoEvents();

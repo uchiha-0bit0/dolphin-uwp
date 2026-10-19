@@ -22,6 +22,9 @@
 #ifdef _WIN32
 #include "Common/Assert.h"
 #endif
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/Kernel32.h"
+#endif
 #if defined(__APPLE__) && !defined(USE_SIGACTION_ON_APPLE)
 #include "Common/Thread.h"
 #endif
@@ -43,6 +46,11 @@
 namespace EMM
 {
 #ifdef _WIN32
+
+#ifdef DOLPHIN_UWP
+using Common::Kernel32::AddVectoredExceptionHandler;
+using Common::Kernel32::RemoveVectoredExceptionHandler;
+#endif
 
 static PVOID s_veh_handle;
 

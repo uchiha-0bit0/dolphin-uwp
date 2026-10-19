@@ -5,7 +5,7 @@
 
 #include "AudioCommon/SoundStream.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 #include <al.h>
 #include <alc.h>
 #include <alext.h>
@@ -48,7 +48,7 @@
 
 class OpenALStream final : public SoundStream
 {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 public:
   OpenALStream() = default;
   ~OpenALStream() override;

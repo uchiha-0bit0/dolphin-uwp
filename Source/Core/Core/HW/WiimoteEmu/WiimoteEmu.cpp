@@ -4,7 +4,6 @@
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
 
 #include <algorithm>
-#include <fstream>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -16,6 +15,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/Config/Config.h"
 #include "Common/FileUtil.h"
+#include "Common/IOFile.h"
 #include "Common/Logging/Log.h"
 #include "Common/MathUtil.h"
 
@@ -86,10 +86,8 @@ void Wiimote::Reset()
   {
     // Write out existing EEPROM
     INFO_LOG_FMT(WIIMOTE, "Wrote EEPROM for {}", GetName());
-    std::ofstream file;
-    File::OpenFStream(file, eeprom_file, std::ios::binary | std::ios::out);
-    file.write(reinterpret_cast<char*>(m_eeprom.data.data()), EEPROM_FREE_SIZE);
-    file.close();
+    File::IOFile file(eeprom_file, "wb");
+    file.WriteBytes(m_eeprom.data.data(), EEPROM_FREE_SIZE);
 
     m_eeprom_dirty = false;
   }
@@ -98,10 +96,8 @@ void Wiimote::Reset()
   if (!want_determinism && File::Exists(eeprom_file))
   {
     // Read existing EEPROM
-    std::ifstream file;
-    File::OpenFStream(file, eeprom_file, std::ios::binary | std::ios::in);
-    file.read(reinterpret_cast<char*>(m_eeprom.data.data()), EEPROM_FREE_SIZE);
-    file.close();
+    File::IOFile file(eeprom_file, "rb");
+    file.ReadBytes(m_eeprom.data.data(), EEPROM_FREE_SIZE);
   }
   else
   {
@@ -154,11 +150,9 @@ void Wiimote::Reset()
     if (File::Exists(mii_file))
     {
       // Import from the existing mii.bin file, if present
-      std::ifstream file;
-      File::OpenFStream(file, mii_file, std::ios::binary | std::ios::in);
-      file.read(reinterpret_cast<char*>(m_eeprom.mii_data_1.data()), m_eeprom.mii_data_1.size());
+      File::IOFile file(mii_file, "rb");
+      file.ReadBytes(m_eeprom.mii_data_1.data(), m_eeprom.mii_data_1.size());
       m_eeprom.mii_data_2 = m_eeprom.mii_data_1;
-      file.close();
     }
   }
 

@@ -216,6 +216,7 @@ void Presenter::ViSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height,
   {
     Present(&present_info);
     ProcessFrameDumping(ticks);
+    ProcessFrameStreaming();
 
     video_events.after_present_event.Trigger(present_info);
   }
@@ -249,6 +250,7 @@ void Presenter::ImmediateSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_
 
   Present(&present_info);
   ProcessFrameDumping(ticks);
+  ProcessFrameStreaming();
 
   video_events.after_present_event.Trigger(present_info);
 }
@@ -321,6 +323,15 @@ void Presenter::ProcessFrameDumping(u64 ticks) const
     // we should either apply post processing as well, or port its gamma correction code
     g_frame_dumper->DumpCurrentFrame(m_xfb_entry->texture.get(), m_xfb_rect, target_rect, ticks,
                                      m_frame_count);
+  }
+}
+
+void Presenter::ProcessFrameStreaming() const
+{
+  if (m_xfb_entry)
+  {
+    g_frame_dumper->StreamCurrentFrame(m_xfb_entry->texture.get(), m_xfb_rect,
+                                       CalculateDrawAspectRatio(false));
   }
 }
 

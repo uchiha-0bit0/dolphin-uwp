@@ -750,7 +750,7 @@ const AbstractPipeline* ShaderCache::InsertGXPipeline(const GXPipelineUid& confi
   {
     entry.first = std::move(pipeline);
 
-    if (g_ActiveConfig.bShaderCache)
+    if (g_ActiveConfig.bShaderCache && g_backend_info.bSupportsPipelineCacheData)
     {
       auto cache_data = entry.first->GetCacheData();
       if (!cache_data.empty())
@@ -776,7 +776,7 @@ ShaderCache::InsertGXUberPipeline(const GXUberPipelineUid& config,
   {
     entry.first = std::move(pipeline);
 
-    if (g_ActiveConfig.bShaderCache)
+    if (g_ActiveConfig.bShaderCache && g_backend_info.bSupportsPipelineCacheData)
     {
       auto cache_data = entry.first->GetCacheData();
       if (!cache_data.empty())

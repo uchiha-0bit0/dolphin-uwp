@@ -3,14 +3,111 @@
 
 #include "Common/QoSSession.h"
 
-#if defined(_WIN32)
+#if defined(DOLPHIN_UWP)
+#include <type_traits>
+
+#include "Common/UWP/SystemLibrary.h"
+#elif defined(_WIN32)
 #include <Qos2.h>
 #pragma comment(lib, "qwave")
 #endif
 
 namespace Common
 {
-#if defined(_WIN32)
+#if defined(DOLPHIN_UWP)
+namespace
+{
+// Qos2.h is limited to desktop builds, so the qWAVE functions are bound at runtime.
+struct QoSVersion
+{
+  USHORT major_version;
+  USHORT minor_version;
+};
+
+constexpr int QOS_TRAFFIC_TYPE_CONTROL = 5;
+constexpr int QOS_SET_OUTGOING_DSCP_VALUE = 2;
+constexpr DWORD QOS_NON_ADAPTIVE_FLOW = 0x00000002;
+
+struct QoSFunctions
+{
+  BOOL(WINAPI* create_handle)(QoSVersion*, HANDLE*) = nullptr;
+  BOOL(WINAPI* close_handle)(HANDLE) = nullptr;
+  BOOL(WINAPI* add_socket_to_flow)(HANDLE, SOCKET, sockaddr*, int, DWORD, ULONG*) = nullptr;
+  BOOL(WINAPI* remove_socket_from_flow)(HANDLE, SOCKET, ULONG, DWORD) = nullptr;
+  BOOL(WINAPI* set_flow)(HANDLE, ULONG, int, ULONG, void*, DWORD, OVERLAPPED*) = nullptr;
+
+  bool IsValid() const
+  {
+    return create_handle && close_handle && add_socket_to_flow && remove_socket_from_flow &&
+           set_flow;
+  }
+};
+
+const QoSFunctions& GetQoSFunctions()
+{
+  static const QoSFunctions functions = [] {
+    QoSFunctions result;
+    const auto bind = [](auto& function, const char* name) {
+      function = UWP::GetSystemFunction<std::remove_reference_t<decltype(function)>>(L"qwave.dll",
+                                                                                     name);
+    };
+    bind(result.create_handle, "QOSCreateHandle");
+    bind(result.close_handle, "QOSCloseHandle");
+    bind(result.add_socket_to_flow, "QOSAddSocketToFlow");
+    bind(result.remove_socket_from_flow, "QOSRemoveSocketFromFlow");
+    bind(result.set_flow, "QOSSetFlow");
+    return result;
+  }();
+  return functions;
+}
+}  // namespace
+
+QoSSession::QoSSession(ENetPeer* peer, int tos_val) : m_peer(peer)
+{
+  const QoSFunctions& qos = GetQoSFunctions();
+  if (!qos.IsValid())
+    return;
+
+  QoSVersion version{1, 0};
+  if (!qos.create_handle(&version, &m_qos_handle))
+  {
+    m_qos_handle = nullptr;
+    return;
+  }
+
+  sockaddr_in sin = {};
+
+  sin.sin_family = AF_INET;
+  sin.sin_port = ENET_HOST_TO_NET_16(peer->host->address.port);
+  sin.sin_addr.s_addr = peer->host->address.host;
+
+  if (qos.add_socket_to_flow(m_qos_handle, peer->host->socket, reinterpret_cast<sockaddr*>(&sin),
+                             QOS_TRAFFIC_TYPE_CONTROL, QOS_NON_ADAPTIVE_FLOW, &m_qos_flow_id))
+  {
+    // We shift the complete ToS value by 3 to get rid of the 3 bit ECN field
+    DWORD dscp = static_cast<DWORD>(tos_val >> 3);
+
+    // Sets DSCP to the same as Linux
+    // This will fail if we're not admin, but we ignore it
+    qos.set_flow(m_qos_handle, m_qos_flow_id, QOS_SET_OUTGOING_DSCP_VALUE, sizeof(DWORD), &dscp, 0,
+                 nullptr);
+
+    m_success = true;
+  }
+}
+
+QoSSession::~QoSSession()
+{
+  if (m_qos_handle == nullptr)
+    return;
+
+  const QoSFunctions& qos = GetQoSFunctions();
+  if (m_qos_flow_id != 0)
+    qos.remove_socket_from_flow(m_qos_handle, m_peer->host->socket, m_qos_flow_id, 0);
+
+  qos.close_handle(m_qos_handle);
+}
+#elif defined(_WIN32)
 QoSSession::QoSSession(ENetPeer* peer, int tos_val) : m_peer(peer)
 {
   QOS_VERSION ver = {1, 0};

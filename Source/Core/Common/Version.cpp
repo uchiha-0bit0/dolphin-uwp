@@ -7,6 +7,12 @@
 
 #include "Common/scmrev.h"
 
+#ifdef DOLPHIN_UWP
+#include <fmt/format.h>
+
+#include "Common/UWP/Device.h"
+#endif
+
 namespace Common
 {
 #define EMULATOR_NAME "Dolphin"
@@ -61,7 +67,13 @@ const std::string& GetScmBranchStr()
 
 const std::string& GetUserAgentStr()
 {
+#ifdef DOLPHIN_UWP
+  // RetroAchievements identifies the UWP port by its own name and the app package version.
+  static const std::string user_agent_str =
+      fmt::format("DolphinUWP/{} ({})", UWP::GetPackageVersion(), UWP::GetDeviceName());
+#else
   static const std::string user_agent_str = EMULATOR_NAME "/" SCM_DESC_STR;
+#endif
   return user_agent_str;
 }
 

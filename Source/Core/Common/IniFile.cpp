@@ -5,8 +5,8 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <fstream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -242,12 +242,10 @@ bool IniFile::Load(const std::string& filename, bool keep_current_data)
     sections.clear();
   // first section consists of the comments before the first real section
 
-  // Open file
-  std::ifstream in;
-  File::OpenFStream(in, filename, std::ios::in);
-
-  if (in.fail())
+  std::string contents;
+  if (!File::ReadFileToString(filename, contents))
     return false;
+  std::istringstream in(contents);
 
   Section* current_section = nullptr;
   bool first_line = true;
@@ -269,11 +267,9 @@ bool IniFile::Load(const std::string& filename, bool keep_current_data)
       line.remove_prefix(3);
     first_line = false;
 
-#ifndef _WIN32
-    // Check for CRLF eol and convert it to LF
+    // The file is read as binary, so lines that end in CRLF keep their CR.
     if (!line.empty() && line.back() == '\r')
       line.remove_suffix(1);
-#endif
 
     if (!line.empty())
     {
@@ -312,43 +308,41 @@ bool IniFile::Load(const std::string& filename, bool keep_current_data)
     }
   }
 
-  in.close();
   return true;
 }
 
 bool IniFile::Save(const std::string& filename)
 {
-  std::ofstream out;
-  std::string temp = File::GetTempFilenameForAtomicWrite(filename);
-  File::OpenFStream(out, temp, std::ios::out);
-
-  if (out.fail())
-  {
-    return false;
-  }
-
+  // The file is written as binary, with the line endings that a text stream writes.
+#ifdef _WIN32
+  constexpr std::string_view eol = "\r\n";
+#else
+  constexpr std::string_view eol = "\n";
+#endif
+  std::string out;
   for (const Section& section : sections)
   {
     if (!section.keys_order.empty() || !section.m_lines.empty())
-      out << '[' << section.name << ']' << std::endl;
+      out.append("[").append(section.name).append("]").append(eol);
 
     if (section.keys_order.empty())
     {
       for (const std::string& s : section.m_lines)
-        out << s << std::endl;
+        out.append(s).append(eol);
     }
     else
     {
       for (const std::string& kvit : section.keys_order)
       {
         auto pair = section.values.find(kvit);
-        out << pair->first << " = " << pair->second << std::endl;
+        out.append(pair->first).append(" = ").append(pair->second).append(eol);
       }
     }
   }
 
-  out.close();
-
+  const std::string temp = File::GetTempFilenameForAtomicWrite(filename);
+  if (!File::WriteStringToFile(temp, out))
+    return false;
   return File::RenameSync(temp, filename);
 }
 

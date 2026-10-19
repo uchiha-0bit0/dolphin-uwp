@@ -3,6 +3,7 @@
 
 #include "VideoCommon/Assets/DirectFilesystemAssetLibrary.h"
 
+#include <system_error>
 #include <vector>
 
 #include <fmt/std.h>
@@ -26,6 +27,19 @@ namespace VideoCommon
 {
 namespace
 {
+// File::FileInfo also reaches the folders that UWP grants access to through its broker.
+std::uintmax_t FileSize(const std::filesystem::path& path, std::error_code& ec)
+{
+  const File::FileInfo info(PathToString(path));
+  if (!info.IsFile())
+  {
+    ec = std::make_error_code(std::errc::no_such_file_or_directory);
+    return static_cast<std::uintmax_t>(-1);
+  }
+  ec.clear();
+  return info.GetSize();
+}
+
 std::size_t GetAssetSize(const CustomTextureData& data)
 {
   std::size_t total = 0;
@@ -77,7 +91,7 @@ DirectFilesystemAssetLibrary::LoadRasterSurfaceShader(const AssetID& asset_id,
   std::size_t metadata_size;
   {
     std::error_code ec;
-    metadata_size = std::filesystem::file_size(metadata->second, ec);
+    metadata_size = FileSize(metadata->second, ec);
     if (ec)
     {
       ERROR_LOG_FMT(VIDEO,
@@ -89,7 +103,7 @@ DirectFilesystemAssetLibrary::LoadRasterSurfaceShader(const AssetID& asset_id,
   std::size_t vertex_shader_size;
   {
     std::error_code ec;
-    vertex_shader_size = std::filesystem::file_size(vertex_shader->second, ec);
+    vertex_shader_size = FileSize(vertex_shader->second, ec);
     if (ec)
     {
       ERROR_LOG_FMT(
@@ -101,7 +115,7 @@ DirectFilesystemAssetLibrary::LoadRasterSurfaceShader(const AssetID& asset_id,
   std::size_t pixel_shader_size;
   {
     std::error_code ec;
-    pixel_shader_size = std::filesystem::file_size(pixel_shader->second, ec);
+    pixel_shader_size = FileSize(pixel_shader->second, ec);
     if (ec)
     {
       ERROR_LOG_FMT(
@@ -175,7 +189,7 @@ CustomAssetLibrary::LoadInfo DirectFilesystemAssetLibrary::LoadMaterial(const As
   std::size_t metadata_size;
   {
     std::error_code ec;
-    metadata_size = std::filesystem::file_size(asset_path, ec);
+    metadata_size = FileSize(asset_path, ec);
     if (ec)
     {
       ERROR_LOG_FMT(VIDEO, "Asset '{}' error - failed to get material file size with error '{}'!",
@@ -246,7 +260,7 @@ CustomAssetLibrary::LoadInfo DirectFilesystemAssetLibrary::LoadMesh(const AssetI
   std::size_t metadata_size;
   {
     std::error_code ec;
-    metadata_size = std::filesystem::file_size(metadata->second, ec);
+    metadata_size = FileSize(metadata->second, ec);
     if (ec)
     {
       ERROR_LOG_FMT(VIDEO,
@@ -258,7 +272,7 @@ CustomAssetLibrary::LoadInfo DirectFilesystemAssetLibrary::LoadMesh(const AssetI
   std::size_t mesh_size;
   {
     std::error_code ec;
-    mesh_size = std::filesystem::file_size(mesh->second, ec);
+    mesh_size = FileSize(mesh->second, ec);
     if (ec)
     {
       ERROR_LOG_FMT(VIDEO, "Asset '{}' error - failed to get mesh file size with error '{}'!",
@@ -368,7 +382,7 @@ CustomAssetLibrary::LoadInfo DirectFilesystemAssetLibrary::LoadTexture(const Ass
   if (metadata != asset_map.end())
   {
     std::error_code ec;
-    metadata_size = std::filesystem::file_size(metadata->second, ec);
+    metadata_size = FileSize(metadata->second, ec);
     if (ec)
     {
       ERROR_LOG_FMT(VIDEO,

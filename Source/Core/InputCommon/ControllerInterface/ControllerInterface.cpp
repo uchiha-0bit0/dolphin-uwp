@@ -12,6 +12,9 @@
 #ifdef CIFACE_USE_WIN32
 #include "InputCommon/ControllerInterface/Win32/Win32.h"
 #endif
+#ifdef CIFACE_USE_UWP
+#include "InputCommon/ControllerInterface/UWP/UWP.h"
+#endif
 #ifdef CIFACE_USE_XLIB
 #include "InputCommon/ControllerInterface/Xlib/XInput2.h"
 #endif
@@ -60,6 +63,9 @@ void ControllerInterface::Initialize(const WindowSystemInfo& wsi)
 
 #ifdef CIFACE_USE_WIN32
   m_input_backends.emplace_back(ciface::Win32::CreateInputBackend(this));
+#endif
+#ifdef CIFACE_USE_UWP
+  m_input_backends.emplace_back(ciface::UWP::CreateInputBackend(this));
 #endif
 #ifdef CIFACE_USE_XLIB
   m_input_backends.emplace_back(ciface::XInput2::CreateInputBackend(this));

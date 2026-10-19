@@ -14,6 +14,7 @@
 #include "AudioCommon/OpenSLESStream.h"
 #include "AudioCommon/PulseAudioStream.h"
 #include "AudioCommon/WASAPIStream.h"
+#include "AudioCommon/XAudio2Stream.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/TimeUtil.h"
@@ -42,6 +43,8 @@ static std::unique_ptr<SoundStream> CreateSoundStreamForBackend(std::string_view
     return std::make_unique<OpenSLESStream>();
   else if (backend == BACKEND_WASAPI && WASAPIStream::IsValid())
     return std::make_unique<WASAPIStream>();
+  else if (backend == BACKEND_XAUDIO2 && XAudio2Stream::IsValid())
+    return std::make_unique<XAudio2Stream>();
   return {};
 }
 
@@ -96,10 +99,11 @@ std::string GetDefaultSoundBackend()
 {
 #if defined(ANDROID)
   return BACKEND_OPENSLES;
+#elif defined(DOLPHIN_UWP)
+  return BACKEND_XAUDIO2;
 #else
   if (CubebStream::IsValid())
     return BACKEND_CUBEB;
-#endif
 
 #if defined(__linux__)
   if (AlsaSound::IsValid())
@@ -107,6 +111,7 @@ std::string GetDefaultSoundBackend()
 #endif
 
   return BACKEND_NULLSOUND;
+#endif
 }
 
 DPL2Quality GetDefaultDPL2Quality()
@@ -131,6 +136,8 @@ std::vector<std::string> GetSoundBackends()
     backends.emplace_back(BACKEND_OPENSLES);
   if (WASAPIStream::IsValid())
     backends.emplace_back(BACKEND_WASAPI);
+  if (XAudio2Stream::IsValid())
+    backends.emplace_back(BACKEND_XAUDIO2);
 
   return backends;
 }
@@ -145,6 +152,8 @@ bool SupportsDPL2Decoder(std::string_view backend)
     return true;
   if (backend == BACKEND_PULSEAUDIO)
     return true;
+  if (backend == BACKEND_XAUDIO2)
+    return true;
   return false;
 }
 
@@ -158,7 +167,8 @@ bool SupportsVolumeChanges(std::string_view backend)
   // FIXME: this one should ask the backend whether it supports it.
   //       but getting the backend from string etc. is probably
   //       too much just to enable/disable a stupid slider...
-  return backend == BACKEND_CUBEB || backend == BACKEND_OPENAL || backend == BACKEND_WASAPI;
+  return backend == BACKEND_CUBEB || backend == BACKEND_OPENAL || backend == BACKEND_WASAPI ||
+         backend == BACKEND_XAUDIO2;
 }
 
 void UpdateSoundStream(Core::System& system)

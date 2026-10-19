@@ -19,7 +19,7 @@
 #include "Core/IOS/USB/USBScanner.h"
 #include "Core/System.h"
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 #include "Common/WindowsDevice.h"
 #endif
 

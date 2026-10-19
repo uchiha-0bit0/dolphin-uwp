@@ -21,8 +21,8 @@ set(BROTLI_FOUND FALSE) # TODO: Same as above
 set(USE_LIBIDN2 OFF)
 set(USE_NGHTTP2 OFF)
 
-if(UNIX)
-  # We use mbedtls on Unix(-like) systems and Android.
+if(UNIX OR WINDOWS_STORE)
+  # We use mbedtls on Unix(-like) systems, Android and UWP.
   set(CURL_USE_OPENSSL OFF)
 
   # This is set if the dolphin_find_optional_system_library call from the main CMakeLists.txt
@@ -40,7 +40,11 @@ if(UNIX)
   endif()
 endif()
 
-if(WIN32)
+if(WINDOWS_STORE)
+  set(CURL_USE_SCHANNEL OFF)
+  set(CURL_WINDOWS_SSPI OFF)
+  set(SHARE_LIB_OBJECT OFF)
+elseif(WIN32)
   set(CURL_USE_SCHANNEL ON)
 endif()
 
@@ -50,7 +54,7 @@ endif()
 
 add_subdirectory(curl)
 
-if(UNIX AND NOT MBEDTLS_FOUND)
+if((UNIX OR WINDOWS_STORE) AND NOT MBEDTLS_FOUND)
   # HACK: Manually link with the mbedtls libraries.
   target_link_libraries(libcurl_static PRIVATE
     MbedTLS::mbedtls

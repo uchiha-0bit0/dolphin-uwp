@@ -30,6 +30,10 @@ PUBLIC
   videod3dcommon
 )
 
+if(WINDOWS_STORE)
+  target_link_libraries(videod3d PRIVATE d3d11.lib)
+endif()
+
 if(MSVC)
   # Add precompiled header
   target_link_libraries(videod3d PRIVATE use_pch)

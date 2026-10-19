@@ -623,6 +623,12 @@ bool GCMemcardDirectory::SetUsedBlocks(int save_index)
   return true;
 }
 
+void GCMemcardDirectory::Flush()
+{
+  if (Config::Get(Config::SESSION_SAVE_DATA_WRITABLE))
+    FlushToFile();
+}
+
 void GCMemcardDirectory::FlushToFile()
 {
   std::unique_lock l(m_write_mutex);

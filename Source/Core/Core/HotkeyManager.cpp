@@ -196,6 +196,13 @@ constexpr std::array<const char*, NUM_HOTKEYS> s_hotkey_labels{{
     _trans("3x"),
     _trans("4x"),
 
+#ifdef DOLPHIN_UWP
+    _trans("Switch Player 1 Controls"),
+    _trans("Switch Player 2 Controls"),
+    _trans("Switch Player 3 Controls"),
+    _trans("Switch Player 4 Controls"),
+#endif
+
     _trans("Show Skylanders Portal"),
     _trans("Show Infinity Base")
 }};
@@ -325,6 +332,10 @@ constexpr std::array<HotkeyGroupInfo, NUM_HOTKEY_GROUPS> s_groups_info = {
      {_trans("GBA Core"), HK_GBA_LOAD, HK_GBA_RESET, true},
      {_trans("GBA Volume"), HK_GBA_VOLUME_DOWN, HK_GBA_TOGGLE_MUTE, true},
      {_trans("GBA Window Size"), HK_GBA_1X, HK_GBA_4X, true},
+#ifdef DOLPHIN_UWP
+     // Moves a player's controls between the game and the GBA screens.
+     {_trans("GBA Controls"), HK_GBA_SWITCH_CONTROLS_1, HK_GBA_SWITCH_CONTROLS_4, true},
+#endif
      {_trans("USB Emulation Devices"), HK_SKYLANDERS_PORTAL, HK_INFINITY_BASE}}};
 
 HotkeyManager::HotkeyManager()
@@ -410,7 +421,10 @@ void HotkeyManager::LoadDefaults(const ControllerInterface& ciface)
   set_key_expression(HK_OPEN, hotkey_string({"Ctrl", "O"}));
   set_key_expression(HK_PLAY_PAUSE, "F10");
 #ifdef _WIN32
+#ifndef DOLPHIN_UWP
+  // Escape opens the quick menu in the UWP build.
   set_key_expression(HK_STOP, "ESCAPE");
+#endif
   set_key_expression(HK_FULLSCREEN, hotkey_string({"Alt", "RETURN"}));
 #else
   set_key_expression(HK_STOP, "Escape");

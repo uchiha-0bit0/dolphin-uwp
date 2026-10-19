@@ -6,14 +6,14 @@
 #include <cstdlib>
 #include <string>
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 #include <windows.h>
 #else
 #include <fmt/format.h>
 #endif
 
 #include "Common/Logging/Log.h"
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 #include "Common/StringUtil.h"
 #endif
 
@@ -24,7 +24,7 @@ namespace
 // Default non library dependent panic alert
 bool DefaultMsgHandler(const char* caption, const char* text, bool yes_no, MsgType style)
 {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
   int window_style = MB_ICONINFORMATION;
   if (style == MsgType::Question)
     window_style = MB_ICONQUESTION;

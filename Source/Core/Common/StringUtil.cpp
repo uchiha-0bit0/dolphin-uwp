@@ -869,7 +869,7 @@ std::string PathToString(const std::filesystem::path& path)
 
 namespace Common
 {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(DOLPHIN_UWP)
 std::vector<std::string> CommandLineToUtf8Argv(const wchar_t* command_line)
 {
   int nargs;

@@ -53,6 +53,7 @@ public:
 protected:
   u32 GetSwapChainFlags() const;
   bool CreateSwapChain(bool stereo = false, bool hdr = false);
+  void EnableHDR();
   void DestroySwapChain();
 
   virtual bool CreateSwapChainBuffers() = 0;

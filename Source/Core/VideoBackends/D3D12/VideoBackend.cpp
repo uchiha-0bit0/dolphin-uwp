@@ -7,6 +7,9 @@
 
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/Device.h"
+#endif
 
 #include "Core/ConfigManager.h"
 
@@ -82,7 +85,12 @@ void VideoBackend::FillBackendInfo()
   g_backend_info.Adapters = D3DCommon::GetAdapterNames();
   g_backend_info.AAModes = DXContext::GetAAModes(g_Config.iAdapter);
   g_backend_info.bSupportsShaderBinaries = true;
+#ifdef DOLPHIN_UWP
+  // GetCachedBlob removes the device on Xbox consoles despite reporting support.
+  g_backend_info.bSupportsPipelineCacheData = !Common::UWP::IsXboxConsole();
+#else
   g_backend_info.bSupportsPipelineCacheData = true;
+#endif
   g_backend_info.bSupportsCoarseDerivatives = true;
   g_backend_info.bSupportsTextureQueryLevels = true;
   g_backend_info.bSupportsLodBiasInSampler = true;
@@ -101,6 +109,8 @@ void VideoBackend::FillBackendInfo()
         g_dx_context->SupportsTextureFormat(DXGI_FORMAT_BC3_UNORM);
     g_backend_info.bSupportsBPTCTextures =
         g_dx_context->SupportsTextureFormat(DXGI_FORMAT_BC7_UNORM);
+    // Pipelines that use a logic op cannot be created without it.
+    g_backend_info.bSupportsLogicOp = g_dx_context->SupportsLogicOp();
   }
 }
 
@@ -149,6 +159,11 @@ void VideoBackend::Shutdown()
     Gfx::GetInstance()->ExecuteCommandList(true);
 
   ShutdownShared();
+
+  // Flush resources released while tearing down the renderer, such as the swap chain buffers.
+  if (g_dx_context)
+    g_dx_context->ExecuteCommandList(true);
+
   DXContext::Destroy();
 }
 }  // namespace DX12

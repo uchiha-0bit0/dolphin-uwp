@@ -15,6 +15,10 @@
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 
+#ifdef DOLPHIN_UWP
+#include "Common/UWP/SystemLibrary.h"
+#endif
+
 namespace Common
 {
 template <typename Clock, typename Duration>
@@ -96,6 +100,15 @@ u64 Timer::GetLocalTimeSinceJan1970()
 // On Linux/other we hope/assume we already have 1ms scheduling granularity.
 static constexpr int TIMER_RESOLUTION_MS = 1;
 
+#ifdef DOLPHIN_UWP
+static void CallTimerPeriodFunction(const char* name)
+{
+  using TimerPeriodFunction = UINT(WINAPI*)(UINT);
+  if (const auto function = UWP::GetSystemFunction<TimerPeriodFunction>(L"winmm.dll", name))
+    function(TIMER_RESOLUTION_MS);
+}
+#endif
+
 void Timer::IncreaseResolution()
 {
 #ifdef _WIN32
@@ -115,13 +128,19 @@ void Timer::IncreaseResolution()
                         sizeof(PowerThrottling));
 
   // Not actually sure how useful this is these days.. :')
+#ifdef DOLPHIN_UWP
+  CallTimerPeriodFunction("timeBeginPeriod");
+#else
   timeBeginPeriod(TIMER_RESOLUTION_MS);
+#endif
 #endif
 }
 
 void Timer::RestoreResolution()
 {
-#ifdef _WIN32
+#if defined(DOLPHIN_UWP)
+  CallTimerPeriodFunction("timeEndPeriod");
+#elif defined(_WIN32)
   timeEndPeriod(TIMER_RESOLUTION_MS);
 #endif
 }

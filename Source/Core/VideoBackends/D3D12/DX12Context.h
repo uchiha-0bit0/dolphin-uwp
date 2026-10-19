@@ -108,6 +108,7 @@ public:
 
   // Test for support for the specified texture format.
   bool SupportsTextureFormat(DXGI_FORMAT format);
+  bool SupportsLogicOp();
 
   // Creates command lists, global buffers and descriptor heaps.
   bool CreateGlobalResources();

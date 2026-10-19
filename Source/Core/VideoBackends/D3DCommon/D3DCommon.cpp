@@ -28,6 +28,21 @@ static bool s_libraries_loaded = false;
 static HRESULT (*create_dxgi_factory)(REFIID riid, _COM_Outptr_ void** ppFactory);
 static HRESULT (*create_dxgi_factory2)(UINT Flags, REFIID riid, void** ppFactory);
 
+#ifdef DOLPHIN_UWP
+static HRESULT CreateDXGIFactoryUWP(REFIID riid, void** factory)
+{
+  return CreateDXGIFactory2(0, riid, factory);
+}
+
+bool LoadLibraries()
+{
+  d3d_compile = D3DCompile;
+  create_dxgi_factory = CreateDXGIFactoryUWP;
+  create_dxgi_factory2 = CreateDXGIFactory2;
+  s_libraries_loaded = true;
+  return true;
+}
+#else
 bool LoadLibraries()
 {
   if (s_libraries_loaded)
@@ -63,6 +78,7 @@ bool LoadLibraries()
   s_libraries_loaded = true;
   return true;
 }
+#endif
 
 void UnloadLibraries()
 {

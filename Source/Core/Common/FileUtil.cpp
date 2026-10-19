@@ -3,6 +3,7 @@
 
 #include "Common/FileUtil.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -28,7 +29,13 @@
 #include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 
-#ifdef _WIN32
+#ifdef DOLPHIN_UWP
+#include <windows.h>
+#include <io.h>
+#include <objbase.h>
+
+#include "Common/UWP/FileSystem.h"
+#elif defined(_WIN32)
 #include <windows.h>
 #include <commdlg.h>  // for GetSaveFileName
 #include <direct.h>   // getcwd
@@ -96,6 +103,19 @@ FileInfo::FileInfo(const char* path)
   }
   else
 #endif
+#ifdef DOLPHIN_UWP
+  {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    m_exists = Common::UWP::QueryFileAttributes(path, &data);
+    const bool is_directory = m_exists && (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+    m_status.type(!m_exists    ? fs::file_type::not_found :
+                  is_directory ? fs::file_type::directory :
+                                 fs::file_type::regular);
+    m_size = m_exists && !is_directory ?
+                 (static_cast<u64>(data.nFileSizeHigh) << 32) | data.nFileSizeLow :
+                 0;
+  }
+#else
   {
     const auto fs_path = StringToPath(path);
     std::error_code error;
@@ -105,6 +125,7 @@ FileInfo::FileInfo(const char* path)
       m_size = 0;
     m_exists = fs::exists(m_status);
   }
+#endif
 }
 
 bool FileInfo::Exists() const
@@ -163,6 +184,26 @@ bool Delete(const std::string& filename, IfAbsentBehavior behavior)
   }
 #endif
 
+#ifdef DOLPHIN_UWP
+  const FileInfo info(filename);
+  if (!info.Exists())
+  {
+    if (behavior == IfAbsentBehavior::ConsoleWarning)
+      WARN_LOG_FMT(COMMON, "{}: {} does not exist", __func__, filename);
+    return true;
+  }
+  if (info.IsDirectory())
+  {
+    WARN_LOG_FMT(COMMON, "{} failed: {} is a directory", __func__, filename);
+    return false;
+  }
+  if (!Common::UWP::RemoveFile(filename))
+  {
+    WARN_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, filename, Common::GetLastErrorString());
+    return false;
+  }
+  return true;
+#else
   auto native_path = StringToPath(filename);
   std::error_code error;
   auto status = fs::status(native_path, error);
@@ -191,12 +232,28 @@ bool Delete(const std::string& filename, IfAbsentBehavior behavior)
   }
 
   return true;
+#endif
 }
+
+#ifdef DOLPHIN_UWP
+static bool CreateDirectoriesUWP(const fs::path& path)
+{
+  if (!path.has_relative_path() || IsDirectory(PathToString(path)))
+    return true;
+  return CreateDirectoriesUWP(path.parent_path()) && Common::UWP::MakeDirectory(PathToString(path));
+}
+#endif
 
 bool CreateDir(const std::string& path)
 {
   DEBUG_LOG_FMT(COMMON, "{}: directory {}", __func__, path);
 
+#ifdef DOLPHIN_UWP
+  const bool created = Common::UWP::MakeDirectory(path);
+  if (!created)
+    ERROR_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, path, Common::GetLastErrorString());
+  return created;
+#else
   std::error_code error;
   auto native_path = StringToPath(path);
   bool success = fs::create_directory(native_path, error);
@@ -207,12 +264,19 @@ bool CreateDir(const std::string& path)
   if (!success)
     ERROR_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, path, error.message());
   return success;
+#endif
 }
 
 bool CreateDirs(std::string_view path)
 {
   DEBUG_LOG_FMT(COMMON, "{}: directory {}", __func__, path);
 
+#ifdef DOLPHIN_UWP
+  const bool created = CreateDirectoriesUWP(StringToPath(path));
+  if (!created)
+    ERROR_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, path, Common::GetLastErrorString());
+  return created;
+#else
   std::error_code error;
   auto native_path = StringToPath(path);
   bool success = fs::create_directories(native_path, error);
@@ -223,12 +287,21 @@ bool CreateDirs(std::string_view path)
   if (!success)
     ERROR_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, path, error.message());
   return success;
+#endif
 }
 
 bool CreateFullPath(std::string_view fullPath)
 {
   DEBUG_LOG_FMT(COMMON, "{}: path {}", __func__, fullPath);
 
+#ifdef DOLPHIN_UWP
+  const bool created = CreateDirectoriesUWP(StringToPath(fullPath).parent_path());
+  if (!created)
+  {
+    ERROR_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, fullPath, Common::GetLastErrorString());
+  }
+  return created;
+#else
   std::error_code error;
   auto native_path = StringToPath(fullPath).parent_path();
   bool success = fs::create_directories(native_path, error);
@@ -239,6 +312,7 @@ bool CreateFullPath(std::string_view fullPath)
   if (!success)
     ERROR_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, fullPath, error.message());
   return success;
+#endif
 }
 
 // Deletes a directory filename, returns true on success
@@ -246,6 +320,26 @@ bool DeleteDir(const std::string& filename, IfAbsentBehavior behavior)
 {
   DEBUG_LOG_FMT(COMMON, "{}: directory {}", __func__, filename);
 
+#ifdef DOLPHIN_UWP
+  const FileInfo info(filename);
+  if (!info.Exists())
+  {
+    if (behavior == IfAbsentBehavior::ConsoleWarning)
+      WARN_LOG_FMT(COMMON, "{}: {} does not exist", __func__, filename);
+    return true;
+  }
+  if (!info.IsDirectory())
+  {
+    ERROR_LOG_FMT(COMMON, "{}: Not a directory {}", __func__, filename);
+    return false;
+  }
+  if (!Common::UWP::RemoveEmptyDirectory(filename))
+  {
+    WARN_LOG_FMT(COMMON, "{}: failed on {}: {}", __func__, filename, Common::GetLastErrorString());
+    return false;
+  }
+  return true;
+#else
   auto native_path = StringToPath(filename);
   std::error_code error;
   auto status = fs::status(native_path, error);
@@ -274,12 +368,22 @@ bool DeleteDir(const std::string& filename, IfAbsentBehavior behavior)
   }
 
   return true;
+#endif
 }
 
 // renames file srcFilename to destFilename, returns true on success
 bool Rename(const std::string& srcFilename, const std::string& destFilename)
 {
   DEBUG_LOG_FMT(COMMON, "{}: {} --> {}", __func__, srcFilename, destFilename);
+#ifdef DOLPHIN_UWP
+  const bool renamed = Common::UWP::RenamePath(srcFilename, destFilename);
+  if (!renamed)
+  {
+    ERROR_LOG_FMT(COMMON, "{} failed: {} --> {}: {}", __func__, srcFilename, destFilename,
+                  Common::GetLastErrorString());
+  }
+  return renamed;
+#else
   std::error_code error;
   std::filesystem::rename(StringToPath(srcFilename), StringToPath(destFilename), error);
   if (error)
@@ -288,6 +392,7 @@ bool Rename(const std::string& srcFilename, const std::string& destFilename)
                   error.message());
   }
   return !error;
+#endif
 }
 
 #ifndef _WIN32
@@ -333,6 +438,15 @@ bool CopyRegularFile(std::string_view source_path, std::string_view destination_
 {
   DEBUG_LOG_FMT(COMMON, "{}: {} --> {}", __func__, source_path, destination_path);
 
+#ifdef DOLPHIN_UWP
+  const bool copied_file = Common::UWP::CopyFileContents(source_path, destination_path, true);
+  if (!copied_file)
+  {
+    ERROR_LOG_FMT(COMMON, "{}: failed {} --> {}: {}", __func__, source_path, destination_path,
+                  Common::GetLastErrorString());
+  }
+  return copied_file;
+#else
   auto src_path = StringToPath(source_path);
   auto dst_path = StringToPath(destination_path);
   std::error_code error;
@@ -343,6 +457,7 @@ bool CopyRegularFile(std::string_view source_path, std::string_view destination_
                   error.message());
   }
   return copied;
+#endif
 }
 
 // Returns the size of a file (or returns 0 if the path isn't a file that exists)
@@ -424,6 +539,104 @@ static FSTEntry ScanDirectoryTreeAndroidContent(std::string directory, bool recu
 }
 #endif
 
+#ifdef DOLPHIN_UWP
+static std::string ToGenericPath(std::wstring_view path)
+{
+  std::string result = WStringToUTF8(path);
+  std::ranges::replace(result, '\\', '/');
+  return result;
+}
+
+static FSTEntry ScanDirectoryTreeUWP(const std::string& directory, bool recursive)
+{
+  FSTEntry parent_entry;
+  parent_entry.physicalName = ToGenericPath(UTF8ToWString(directory));
+  parent_entry.isDirectory = IsDirectory(directory);
+  parent_entry.size = 0;
+
+  Common::UWP::ForEachDirectoryEntry(
+      directory, false, [&](const std::wstring& path, bool is_directory) {
+        const std::string physical_name = ToGenericPath(path);
+        FSTEntry entry;
+        if (is_directory && recursive)
+        {
+          entry = ScanDirectoryTreeUWP(physical_name, true);
+        }
+        else
+        {
+          entry.isDirectory = is_directory;
+          entry.size = is_directory ? 0 : FileInfo(physical_name).GetSize();
+          entry.physicalName = physical_name;
+        }
+        entry.virtualName = PathToString(StringToPath(physical_name).filename());
+        parent_entry.children.push_back(std::move(entry));
+      });
+
+  parent_entry.size = parent_entry.children.size();
+  for (const FSTEntry& child : parent_entry.children)
+  {
+    if (child.isDirectory)
+      parent_entry.size += child.size;
+  }
+  return parent_entry;
+}
+
+static bool DeleteDirRecursivelyUWP(const std::string& directory)
+{
+  bool success = true;
+  Common::UWP::ForEachDirectoryEntry(
+      directory, false, [&](const std::wstring& path, bool is_directory) {
+        const std::string entry = WStringToUTF8(path);
+        WIN32_FILE_ATTRIBUTE_DATA data{};
+        const bool link = Common::UWP::QueryFileAttributes(entry, &data) &&
+                          (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        if (is_directory && !link)
+          success &= DeleteDirRecursivelyUWP(entry);
+        else if (is_directory)
+          success &= Common::UWP::RemoveEmptyDirectory(entry);
+        else
+          success &= Common::UWP::RemoveFile(entry);
+      });
+  return Common::UWP::RemoveEmptyDirectory(directory) && success;
+}
+
+static bool CopyUWP(const std::string& source, const std::string& destination,
+                    bool overwrite_existing)
+{
+  if (!IsDirectory(source))
+    return Common::UWP::CopyFileContents(source, destination, overwrite_existing);
+  if (!Common::UWP::MakeDirectory(destination))
+    return false;
+
+  bool success = true;
+  Common::UWP::ForEachDirectoryEntry(source, false, [&](const std::wstring& path, bool) {
+    const std::string name = PathToString(std::filesystem::path(path).filename());
+    success &= CopyUWP(WStringToUTF8(path), destination + DIR_SEP + name, overwrite_existing);
+  });
+  return success;
+}
+
+static bool MoveWithOverwriteUWP(const std::string& source, const std::string& destination)
+{
+  if (Common::UWP::RenamePath(source, destination))
+    return true;
+  if (!IsDirectory(source))
+  {
+    return Common::UWP::CopyFileContents(source, destination, true) &&
+           Common::UWP::RemoveFile(source);
+  }
+  if (!Common::UWP::MakeDirectory(destination))
+    return false;
+
+  bool success = true;
+  Common::UWP::ForEachDirectoryEntry(source, false, [&](const std::wstring& path, bool) {
+    const std::string name = PathToString(std::filesystem::path(path).filename());
+    success &= MoveWithOverwriteUWP(WStringToUTF8(path), destination + DIR_SEP + name);
+  });
+  return success && Common::UWP::RemoveEmptyDirectory(source);
+}
+#endif
+
 // Recursive or non-recursive list of files and directories under directory.
 FSTEntry ScanDirectoryTree(const std::string& directory, bool recursive)
 {
@@ -433,7 +646,9 @@ FSTEntry ScanDirectoryTree(const std::string& directory, bool recursive)
   if (IsPathAndroidContent(directory))
     return ScanDirectoryTreeAndroidContent(directory, recursive);
 #endif
-
+#ifdef DOLPHIN_UWP
+  return ScanDirectoryTreeUWP(directory, recursive);
+#else
   auto path_to_physical_name = [](const fs::path& path) {
 #ifdef _WIN32
     return WStringToUTF8(path.generic_wstring());
@@ -513,6 +728,7 @@ FSTEntry ScanDirectoryTree(const std::string& directory, bool recursive)
   }
 
   return parent_entry;
+#endif
 }
 
 // Deletes the given directory and anything under it. Returns true on success.
@@ -520,12 +736,21 @@ bool DeleteDirRecursively(const std::string& directory)
 {
   DEBUG_LOG_FMT(COMMON, "{}: {}", __func__, directory);
 
+#ifdef DOLPHIN_UWP
+  if (!Exists(directory))
+    return true;
+  const bool deleted = DeleteDirRecursivelyUWP(directory);
+  if (!deleted)
+    ERROR_LOG_FMT(COMMON, "{}: {} failed. {}", __func__, directory, Common::GetLastErrorString());
+  return deleted;
+#else
   std::error_code error;
   const std::uintmax_t num_removed = std::filesystem::remove_all(StringToPath(directory), error);
   const bool success = num_removed != static_cast<std::uintmax_t>(-1) && !error;
   if (!success)
     ERROR_LOG_FMT(COMMON, "{}: {} failed. {}", __func__, directory, error.message());
   return success;
+#endif
 }
 
 bool Copy(std::string_view source_path, std::string_view dest_path, bool overwrite_existing)
@@ -533,6 +758,15 @@ bool Copy(std::string_view source_path, std::string_view dest_path, bool overwri
   DEBUG_LOG_FMT(COMMON, "{}: {} --> {} ({})", __func__, source_path, dest_path,
                 overwrite_existing ? "overwrite" : "preserve");
 
+#ifdef DOLPHIN_UWP
+  const bool copied = CopyUWP(std::string(source_path), std::string(dest_path), overwrite_existing);
+  if (!copied)
+  {
+    ERROR_LOG_FMT(COMMON, "{}: failed {} --> {} ({}): {}", __func__, source_path, dest_path,
+                  overwrite_existing ? "overwrite" : "preserve", Common::GetLastErrorString());
+  }
+  return copied;
+#else
   auto src_path = StringToPath(source_path);
   auto dst_path = StringToPath(dest_path);
   std::error_code error;
@@ -551,8 +785,10 @@ bool Copy(std::string_view source_path, std::string_view dest_path, bool overwri
     return false;
   }
   return true;
+#endif
 }
 
+#ifndef DOLPHIN_UWP
 static bool MoveWithOverwrite(const std::filesystem::path& src, const std::filesystem::path& dst,
                               std::error_code& error)
 {
@@ -590,10 +826,19 @@ static bool MoveWithOverwrite(const std::filesystem::path& src, const std::files
 
   return true;
 }
+#endif
 
 bool MoveWithOverwrite(std::string_view source_path, std::string_view dest_path)
 {
   DEBUG_LOG_FMT(COMMON, "{}: {} --> {}", __func__, source_path, dest_path);
+#ifdef DOLPHIN_UWP
+  if (!MoveWithOverwriteUWP(std::string(source_path), std::string(dest_path)))
+  {
+    ERROR_LOG_FMT(COMMON, "{}: failed {} --> {}: {}", __func__, source_path, dest_path,
+                  Common::GetLastErrorString());
+  }
+  return true;
+#else
   auto src_path = StringToPath(source_path);
   auto dst_path = StringToPath(dest_path);
   std::error_code error;
@@ -603,6 +848,7 @@ bool MoveWithOverwrite(std::string_view source_path, std::string_view dest_path)
                   error.message());
   }
   return true;
+#endif
 }
 
 // Returns the current directory
@@ -845,6 +1091,10 @@ static void RebuildUserDirectories(unsigned int dir_index)
     s_user_paths[D_WIIROOT_IDX] = s_user_paths[D_USER_IDX] + WII_USER_DIR DIR_SEP;
     s_user_paths[D_TRIUSER_IDX] = s_user_paths[D_USER_IDX] + TRI_USER_DIR DIR_SEP;
     s_user_paths[D_CONFIG_IDX] = s_user_paths[D_USER_IDX] + CONFIG_DIR DIR_SEP;
+    s_user_paths[D_CONTROLLERPROFILES_IDX] =
+        s_user_paths[D_CONFIG_IDX] + CONTROLLER_PROFILES_DIR DIR_SEP;
+    s_user_paths[D_GRAPHICSMODCONFIG_IDX] =
+        s_user_paths[D_CONFIG_IDX] + GRAPHICSMOD_CONFIG_DIR DIR_SEP;
     s_user_paths[D_GAMESETTINGS_IDX] = s_user_paths[D_USER_IDX] + GAMESETTINGS_DIR DIR_SEP;
     s_user_paths[D_MAPS_IDX] = s_user_paths[D_USER_IDX] + MAPS_DIR DIR_SEP;
     s_user_paths[D_CACHE_IDX] = s_user_paths[D_USER_IDX] + CACHE_DIR DIR_SEP;
@@ -922,6 +1172,10 @@ static void RebuildUserDirectories(unsigned int dir_index)
     break;
 
   case D_CONFIG_IDX:
+    s_user_paths[D_CONTROLLERPROFILES_IDX] =
+        s_user_paths[D_CONFIG_IDX] + CONTROLLER_PROFILES_DIR DIR_SEP;
+    s_user_paths[D_GRAPHICSMODCONFIG_IDX] =
+        s_user_paths[D_CONFIG_IDX] + GRAPHICSMOD_CONFIG_DIR DIR_SEP;
     s_user_paths[F_DOLPHINCONFIG_IDX] = s_user_paths[D_CONFIG_IDX] + DOLPHIN_CONFIG;
     s_user_paths[F_GCPADCONFIG_IDX] = s_user_paths[D_CONFIG_IDX] + GCPAD_CONFIG;
     s_user_paths[F_GCKEYBOARDCONFIG_IDX] = s_user_paths[D_CONFIG_IDX] + GCKEYBOARD_CONFIG;

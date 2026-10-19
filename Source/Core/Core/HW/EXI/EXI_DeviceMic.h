@@ -11,6 +11,10 @@
 #include "Common/WorkQueueThread.h"
 #include "Core/HW/EXI/EXI_Device.h"
 
+#ifdef DOLPHIN_UWP
+#include "AudioCommon/UWPAudioCapture.h"
+#endif
+
 struct cubeb;
 struct cubeb_stream;
 
@@ -59,6 +63,7 @@ private:
 
   static long DataCallback(cubeb_stream* stream, void* user_data, const void* input_buffer,
                            void* output_buffer, long nframes);
+  void AddSamples(const s16* samples, long count);
 
   void TransferByte(u8& byte) override;
 
@@ -80,6 +85,9 @@ private:
   // Streaming input interface
   std::shared_ptr<cubeb> m_cubeb_ctx = nullptr;
   cubeb_stream* m_cubeb_stream = nullptr;
+#ifdef DOLPHIN_UWP
+  AudioCommon::UWPAudioCapture m_capture;
+#endif
 
   Status m_status{};
 
