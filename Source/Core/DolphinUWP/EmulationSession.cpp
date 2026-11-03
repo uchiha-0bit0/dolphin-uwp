@@ -190,6 +190,7 @@ bool EmulationSession::Start(std::unique_ptr<BootParameters> boot, std::string t
   }
 
   m_active = true;
+  OnTitleChanged();
   return true;
 }
 
@@ -459,12 +460,13 @@ void EmulationSession::OnTitleChanged()
   // The first title is the one that was started, which keeps its name from the library.
   const SConfig& config = SConfig::GetInstance();
   const std::string game_id = config.GetGameID();
-  if (game_id.empty() || game_id == m_title_game_id)
+  if (game_id.empty())
     return;
-  const bool first = m_title_game_id.empty();
+  const bool is_new_game = m_title_game_id != game_id;
   m_title_game_id = game_id;
+  InputMappingHost::OnGameStarted(game_id);
   const std::string description = config.GetTitleDescription();
-  if (first || description.empty())
+  if (!is_new_game || description.empty())
     return;
   m_title = description;
   m_menu.SetTitle(m_title);
